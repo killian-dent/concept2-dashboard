@@ -503,4 +503,4 @@ else:
         st.markdown("")
 
 st.divider()
-st.caption("Data refreshes every 5 minutes · Challenges refresh hourly · Built with Streamlit + Plotly")
+st.caption("Data refreshes every 6 hours · WOD rankings cached 24 hours · Built with Streamlit + Plotly")
