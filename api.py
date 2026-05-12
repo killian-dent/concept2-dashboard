@@ -1,0 +1,360 @@
+"""
+Concept2 Logbook API client.
+
+Real API docs: https://log.concept2.com/developers/documentation/
+
+Key facts about the live API:
+  - Base path: https://log.concept2.com/api  (NO /v1/ in the URL)
+  - API version goes in the Accept header: application/vnd.c2logbook.v1+json
+  - Pagination param is "number" (not "per_page"), max 250
+  - Result "time" field is in tenths of seconds
+  - Workout intervals are under result["workout"]["intervals"]
+
+To activate live data:
+  1. Complete OAuth2 flow to obtain a Bearer token (see README.md)
+  2. Replace API_TOKEN in config.py with your token
+  3. Set USER_ID in config.py to your numeric Concept2 user ID
+"""
+
+import re
+import time as _time
+import requests
+from typing import Optional
+
+import config
+from config import API_TOKEN, API_BASE_URL, API_VERSION, RESULTS_PER_PAGE, is_placeholder_token
+from data import generate_sample_results, pace_from_time_distance, watts_from_pace, format_pace
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _headers() -> dict:
+    return {
+        "Authorization": f"Bearer {API_TOKEN}",
+        # Version is declared in the Accept header, NOT in the URL path
+        "Accept": f"application/vnd.c2logbook.{API_VERSION}+json",
+    }
+
+
+def _get(endpoint: str, params: Optional[dict] = None) -> dict:
+    """Single authenticated GET. Raises on HTTP errors."""
+    # Correct URL: /api/{endpoint}  — no version prefix in path
+    url = f"{API_BASE_URL}/{endpoint}"
+    resp = requests.get(url, headers=_headers(), params=params or {}, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _paginate(endpoint: str, extra_params: Optional[dict] = None) -> list[dict]:
+    """Fetch all pages and return the combined data list."""
+    # Pagination param is "number" per the API docs (not "per_page")
+    params = {"number": RESULTS_PER_PAGE, **(extra_params or {})}
+    results = []
+    page = 1
+    while True:
+        params["page"] = page
+        body = _get(endpoint, params)
+        data = body.get("data", [])
+        results.extend(data)
+        pagination = body.get("meta", {}).get("pagination", {})
+        if page >= pagination.get("total_pages", 1):
+            break
+        page += 1
+        _time.sleep(0.1)
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Result normalisation
+# ---------------------------------------------------------------------------
+
+def _label(r: dict) -> str:
+    """Human-readable label for a result based on workout_type and distance/time."""
+    wt = r.get("workout_type", "")
+    dist = r.get("distance", 0)
+    time_s = r.get("time", 0) / 10.0
+
+    if wt in ("FixedDistRow", "FixedDistSki", "FixedDistBike", "FixedDistDynRow"):
+        return f"{dist:,}m"
+    if wt in ("FixedTimeRow", "FixedTimeSki", "FixedTimeBike", "FixedTimeDynRow"):
+        mins = int(time_s // 60)
+        return f"{mins} min"
+    if wt == "JustRow":
+        return f"{dist:,}m free row"
+    if wt == "VariableInterval":
+        return "Intervals"
+    if wt == "FixedCalRow":
+        return f"{r.get('calories_total', 0)} cal"
+    return f"{dist:,}m" if dist else wt
+
+
+def _normalize(r: dict) -> dict:
+    """
+    Convert a raw Concept2 API result dict into our internal shape,
+    which matches what generate_sample_results() produces.
+    """
+    time_tenths = r.get("time", 0)
+    time_s = time_tenths / 10.0
+    dist = r.get("distance", 0)
+    pace_s = pace_from_time_distance(time_s, dist) if dist else 0.0
+
+    wt = r.get("workout_type", "")
+    is_timed = "FixedTime" in wt
+
+    # Intervals → splits
+    intervals = (r.get("workout") or {}).get("intervals", [])
+    splits = []
+    for i, iv in enumerate(intervals):
+        iv_time_s = iv.get("time", 0) / 10.0
+        iv_dist = iv.get("distance", 0)
+        iv_pace = pace_from_time_distance(iv_time_s, iv_dist) if iv_dist else 0.0
+        iv_hr = iv.get("heart_rate") or {}
+        splits.append({
+            "split_number": i + 1,
+            "distance":      iv_dist,
+            "time":          round(iv_time_s, 1),
+            "pace":          iv_pace,
+            "pace_formatted": format_pace(iv_pace),
+            "spm":           iv.get("stroke_rate", 0),
+            "watts":         round(watts_from_pace(iv_pace), 1) if iv_pace else 0,
+            "heart_rate":    iv_hr.get("max", iv_hr.get("ending", 0)),
+        })
+
+    hr = r.get("heart_rate") or {}
+
+    return {
+        "id":           r["id"],
+        "date":         r.get("date_utc") or r.get("date", ""),
+        "date_display": (r.get("date") or "")[:10],
+        "workout_type": r.get("type", "rower"),
+        "workout": {
+            "type":               "time" if is_timed else "distance",
+            "label":              _label(r),
+            "distance":           dist,
+            "time":               time_tenths,
+            "time_seconds":       time_s,
+            "spm":                r.get("stroke_rate", 0),
+            "heart_rate_average": hr.get("average", 0),
+            "watts_average":      round(watts_from_pace(pace_s), 1) if pace_s else 0,
+            "calories":           r.get("calories_total", 0),
+            "pace":               pace_s,
+            "pace_formatted":     format_pace(pace_s),
+            "splits":             splits,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def fetch_results(user_id: Optional[int] = None) -> list[dict]:
+    """
+    Return all workout results for the authenticated user.
+
+    Live path: GET /api/users/{user_id}/results  (paginated)
+    Falls back to sample data when token is a placeholder.
+    """
+    if is_placeholder_token():
+        return generate_sample_results()
+
+    # ── REAL API CALL ──────────────────────────────────────────────────────
+    if user_id is None:
+        user_id = getattr(config, "USER_ID", None)
+    if not user_id:
+        raise RuntimeError(
+            "USER_ID is not set in config.py.\n"
+            "Find your numeric Concept2 user ID at https://log.concept2.com/profile "
+            "and set USER_ID in config.py."
+        )
+
+    raw = _paginate(f"users/{user_id}/results")
+    return [_normalize(r) for r in raw]
+
+
+def fetch_result_detail(result_id: int, user_id: Optional[int] = None) -> dict:
+    """
+    Return full detail (including splits) for a single result.
+
+    Live path: GET /api/users/{user_id}/results/{result_id}
+    Falls back to the matching sample record when token is a placeholder.
+    """
+    if is_placeholder_token():
+        for r in generate_sample_results():
+            if r["id"] == result_id:
+                return r
+        return {}
+
+    # ── REAL API CALL ──────────────────────────────────────────────────────
+    if user_id is None:
+        user_id = getattr(config, "USER_ID", None)
+    body = _get(f"users/{user_id}/results/{result_id}")
+    raw = body.get("data", {})
+    return _normalize(raw) if raw else {}
+
+
+def fetch_ranking(
+    distance: int,
+    year: int,
+    gender: str = "M",
+    machine: str = "rower",
+    max_pages: int = 20,
+) -> Optional[dict]:
+    """
+    Scrape the Concept2 rankings page to find this user's position.
+
+    Searches up to max_pages (50 results each = top 1000 by default).
+    Returns {"rank": int, "time": str} or None if not found.
+
+    Identifies the user by their numeric USER_ID appearing in the row link
+    as /individual/{USER_ID}, so it's robust against name changes.
+    """
+    user_id = getattr(config, "USER_ID", None)
+    if not user_id:
+        return None
+
+    search_token = f"/individual/{user_id}"
+    base_url = f"https://log.concept2.com/rankings/{year}/{machine}/{distance}"
+
+    for page in range(1, max_pages + 1):
+        try:
+            resp = requests.get(
+                base_url,
+                params={"gender": gender, "page": page},
+                timeout=10,
+            )
+            if resp.status_code != 200:
+                break
+            html = resp.text
+
+            if search_token in html:
+                idx = html.find(search_token)
+                preceding = html[:idx]
+                tr_ids = re.findall(r'<tr id="(\d+)">', preceding)
+                if not tr_ids:
+                    return None
+                rank = int(tr_ids[-1])
+                # Extract time from the same row
+                row_start = preceding.rfind(f'<tr id="{tr_ids[-1]}">')
+                row_end   = html.find('</tr>', row_start) + 5
+                row_html  = html[row_start:row_end]
+                time_match = re.search(r'<td[^>]*>\s*(\d+:\d+\.\d)\s*</td>', row_html)
+                return {
+                    "rank":     rank,
+                    "time":     time_match.group(1) if time_match else "",
+                    "page":     page,
+                    "rankings_url": f"{base_url}?gender={gender}&page={page}",
+                }
+
+            if f"page={page + 1}" not in html:
+                break
+
+            _time.sleep(0.15)
+        except Exception:
+            break
+
+    return None
+
+
+def fetch_wod_ranking(date: str, machine: str = "rowerg") -> Optional[dict]:
+    """
+    Scrape the Concept2 WOD honorboard for a given date and find the user's position.
+
+    date:    YYYY-MM-DD
+    machine: rowerg | skierg | bikeerg
+
+    WOD boards use /profile/{user_id} links (unlike standard rankings which use
+    /individual/{user_id}), so this is a separate scraper.
+
+    Returns {"rank": int, "result": str, "pace": str, "total": int, "url": str}
+    or None if not found or if the WOD board doesn't exist for that date.
+    """
+    user_id = getattr(config, "USER_ID", None)
+    if not user_id:
+        return None
+
+    search_token = f"/profile/{user_id}"
+    base_url = f"https://log.concept2.com/wod/{date}/{machine}"
+
+    session = requests.Session()
+    total_pages = None
+
+    for page in range(1, 81):  # cap at 80 pages (4,000 entries)
+        try:
+            resp = session.get(base_url, params={"page": page}, timeout=10)
+        except Exception:
+            break
+        if resp.status_code != 200:
+            return None
+        html = resp.text
+
+        # Discover total pages from pagination on the first fetch
+        if total_pages is None:
+            page_nums = [int(p) for p in re.findall(r'page=(\d+)', html)]
+            total_pages = max(page_nums) if page_nums else 1
+
+        if search_token in html:
+            idx = html.find(search_token)
+            preceding = html[:idx]
+            tr_ids = re.findall(r'<tr id="(\d+)">', preceding)
+            if not tr_ids:
+                return None
+            rank = int(tr_ids[-1])
+
+            # Extract result cells — bound to the exact </tr> so we don't bleed into the next row
+            row_start = preceding.rfind(f'<tr id="{tr_ids[-1]}">')
+            row_end   = html.find('</tr>', row_start) + 5
+            row_html  = html[row_start:row_end]
+            cells = re.findall(r'<td[^>]*>(.*?)</td>', row_html, re.DOTALL)
+            cells_clean = [re.sub(r'<[^>]+>', '', c).strip() for c in cells]
+            result_val = cells_clean[-2] if len(cells_clean) >= 2 else ""
+            pace_val   = cells_clean[-1] if cells_clean else ""
+
+            return {
+                "rank":   rank,
+                "total":  total_pages * 50,  # approximate
+                "result": result_val,
+                "pace":   pace_val,
+                "url":    base_url,
+            }
+
+        if page >= total_pages:
+            return None  # exhausted all pages
+
+        _time.sleep(0.05)
+
+    return None
+
+
+def fetch_challenges() -> list[dict]:
+    """
+    Return currently active Concept2 challenges.
+
+    Live path: GET /api/challenges/current  (no auth required, but token is fine)
+    Returns empty list on error so the UI degrades gracefully.
+    """
+    try:
+        body = _get("challenges/current")
+        return body.get("data", [])
+    except Exception:
+        return []
+
+
+def fetch_profile() -> dict:
+    """
+    Return the authenticated user's profile.
+
+    Live path: GET /api/users/{USER_ID}
+    """
+    if is_placeholder_token():
+        return {"id": 0, "username": "Sample Athlete", "first_name": "Sample",
+                "last_name": "Athlete", "email": ""}
+
+    # ── REAL API CALL ──────────────────────────────────────────────────────
+    user_id = getattr(config, "USER_ID", None)
+    if not user_id:
+        return {}
+    body = _get(f"users/{user_id}")
+    return body.get("data", {})
