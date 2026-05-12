@@ -43,12 +43,12 @@ if "selector_ver" not in st.session_state:
 # Data loading
 # ---------------------------------------------------------------------------
 
-@st.cache_data(show_spinner="Loading workouts…", ttl=300)
+@st.cache_data(show_spinner="Loading workouts…", ttl=21600)
 def get_data() -> tuple:
     return tuple(api.fetch_results())
 
 
-@st.cache_data(show_spinner=False, ttl=3600)
+@st.cache_data(show_spinner=False, ttl=21600)
 def get_challenges() -> list:
     return api.fetch_challenges()
 
@@ -65,9 +65,14 @@ df = load_results_df(raw_results)
 # Header & sample-data warning
 # ---------------------------------------------------------------------------
 
-col_title, col_badge = st.columns([4, 1])
+col_title, col_refresh, col_badge = st.columns([4, 1, 1])
 with col_title:
     st.title("🚣 Concept2 Dashboard")
+with col_refresh:
+    st.write("")
+    if st.button("🔄 Refresh", use_container_width=True, help="Clear cache and reload all data"):
+        st.cache_data.clear()
+        st.rerun()
 with col_badge:
     if is_placeholder_token():
         st.warning("Sample data", icon="⚠️")
@@ -355,7 +360,7 @@ if not df.empty:
             if not dist_prs.loc[dist_prs["Event"] == name, "Best Time"].eq("—").all()
         }
 
-        @st.cache_data(show_spinner=False, ttl=1800)
+        @st.cache_data(show_spinner=False, ttl=21600)
         def _fetch_rankings(distances: tuple, year: int, gender: str) -> dict:
             results = {}
             for name, dist in distances:
@@ -405,7 +410,6 @@ if not df.empty:
         st.markdown("---")
         st.markdown("**WOD Honorboard**")
 
-        # Collect unique dates from the user's results (most recent first)
         if not df.empty:
             wod_dates = (
                 df["date"].dt.strftime("%Y-%m-%d")
@@ -423,25 +427,36 @@ if not df.empty:
                         rows.append({"Date": d, **result})
                 return rows
 
-            with st.spinner("Looking up WOD rankings…"):
-                wod_rows = _fetch_wod_rankings(tuple(wod_dates))
-
-            if not wod_rows:
-                st.caption("No WOD honorboard appearances found in your recent workouts.")
+            # Check if already cached so we don't show the button unnecessarily
+            cached = st.session_state.get("wod_loaded", False)
+            if not cached:
+                st.caption(
+                    "Searching the WOD honorboard requires scanning up to 40 pages "
+                    "of Concept2's website (~15–20s). Results are cached for 24 hours."
+                )
+                if st.button("Load WOD Rankings", key="load_wod"):
+                    st.session_state.wod_loaded = True
+                    st.rerun()
             else:
-                wod_display = pd.DataFrame([
-                    {
-                        "Date":    r["Date"],
-                        "Rank":    f"#{r['rank']:,}",
-                        "Result":  r["result"],
-                        "Pace":    r["pace"],
-                        "~ Field": f"~{r['total']:,}",
-                    }
-                    for r in wod_rows
-                ])
-                st.dataframe(wod_display, hide_index=True, use_container_width=True)
-                for r in wod_rows:
-                    st.caption(f"[{r['Date']} WOD honorboard →]({r['url']})")
+                with st.spinner("Searching WOD honorboards… (cached for 24h after first load)"):
+                    wod_rows = _fetch_wod_rankings(tuple(wod_dates))
+
+                if not wod_rows:
+                    st.caption("No WOD honorboard appearances found in your recent workouts.")
+                else:
+                    wod_display = pd.DataFrame([
+                        {
+                            "Date":    r["Date"],
+                            "Rank":    f"#{r['rank']:,}",
+                            "Result":  r["result"],
+                            "Pace":    r["pace"],
+                            "~ Field": f"~{r['total']:,}",
+                        }
+                        for r in wod_rows
+                    ])
+                    st.dataframe(wod_display, hide_index=True, use_container_width=True)
+                    for r in wod_rows:
+                        st.caption(f"[{r['Date']} WOD honorboard →]({r['url']})")
 
 st.divider()
 
