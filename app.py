@@ -160,21 +160,34 @@ if df.empty:
 else:
     recent = df.head(20).copy()
 
-    display_cols = {
-        "date":        "Date",
-        "label":       "Workout",
-        "distance_m":  "Distance (m)",
-        "duration":    "Duration",
-        "pace":        "Pace /500m",
-        "spm":         "SPM",
-        "watts":       "Watts",
-        "calories":    "Cal",
-        "hr_avg":      "Avg HR",
-        "drag_factor": "Drag",
-    }
-    display = recent[list(display_cols.keys())].rename(columns=display_cols)
+    # Show rest columns when any recent workout has rest data
+    has_rest_in_table = recent["rest_distance_m"].gt(0).any()
+
+    col_map = [
+        ("date",        "Date"),
+        ("label",       "Workout"),
+        ("distance_m",  "Work (m)" if has_rest_in_table else "Distance (m)"),
+    ]
+    if has_rest_in_table:
+        col_map.append(("rest_distance_m", "Rest (m)"))
+    col_map += [
+        ("duration",    "Work Time" if has_rest_in_table else "Duration"),
+        ("pace",        "Pace /500m"),
+        ("spm",         "SPM"),
+        ("watts",       "Watts"),
+        ("calories",    "Cal"),
+        ("hr_avg",      "Avg HR"),
+        ("drag_factor", "Drag"),
+    ]
+    display_keys  = [k for k, _ in col_map]
+    display_names = {k: v for k, v in col_map}
+
+    display = recent[display_keys].rename(columns=display_names)
     display["Date"] = display["Date"].dt.strftime("%Y-%m-%d")
-    display["Distance (m)"] = display["Distance (m)"].apply(lambda x: f"{int(x):,}")
+    work_col = "Work (m)" if has_rest_in_table else "Distance (m)"
+    display[work_col] = display[work_col].apply(lambda x: f"{int(x):,}")
+    if has_rest_in_table:
+        display["Rest (m)"] = display["Rest (m)"].apply(lambda x: f"{int(x):,}" if x > 0 else "—")
 
     st.dataframe(display, use_container_width=True, hide_index=True)
 
@@ -248,9 +261,8 @@ else:
                 total_time = row["time_s"] + rest_time_s
                 st.caption(
                     f"ℹ️ Total session: **{total_dist:,} m** over **{format_duration(total_time)}** "
-                    f"(work + rest). Concept2's help pages don't explicitly clarify whether "
-                    f"rest distance counts toward challenge and annual totals — the work figures "
-                    f"above are what's shown on rankings and honorboards."
+                    f"(work + rest). Concept2 counts both work and rest distance/time toward "
+                    f"lifetime totals and challenges. Rankings and honorboards use work figures only."
                 )
 
             if splits:

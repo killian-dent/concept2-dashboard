@@ -243,8 +243,15 @@ def compute_summary(df: pd.DataFrame) -> dict:
 
     df_date = df["date"].dt.tz_localize("UTC") if df["date"].dt.tz is None else df["date"].dt.tz_convert("UTC")
 
-    this_month_m = df.loc[df_date >= month_start, "distance_m"].sum()
-    this_year_m  = df.loc[df_date >= year_start,  "distance_m"].sum()
+    # Concept2 counts both work and rest distance/time toward lifetime totals
+    total_dist = df["distance_m"] + df["rest_distance_m"]
+    total_time = df["time_s"] + df["rest_time_s"]
+
+    mask_month = df_date >= month_start
+    mask_year  = df_date >= year_start
+
+    this_month_m = total_dist[mask_month].sum()
+    this_year_m  = total_dist[mask_year].sum()
 
     # Current streak: consecutive days with at least one workout
     workout_dates = sorted(df["date"].dt.date.unique(), reverse=True)
@@ -258,9 +265,9 @@ def compute_summary(df: pd.DataFrame) -> dict:
             break
 
     return {
-        "total_meters":   int(df["distance_m"].sum()),
+        "total_meters":   int(total_dist.sum()),
         "total_workouts": len(df),
-        "total_time_s":   float(df["time_s"].sum()),
+        "total_time_s":   float(total_time.sum()),
         "this_month_m":   int(this_month_m),
         "this_year_m":    int(this_year_m),
         "streak_days":    streak,
