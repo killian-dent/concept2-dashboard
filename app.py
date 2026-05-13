@@ -544,30 +544,20 @@ else:
         ch_start = pd.Timestamp(ch.get("start", "2000-01-01"), tz="UTC")
         ch_end   = pd.Timestamp(ch.get("end",   "2000-01-01"), tz="UTC")
 
-        # Calculate meters the user logged during this challenge window
-        user_meters = 0
-        if not df.empty:
-            dates = df["date"].dt.tz_localize("UTC") if df["date"].dt.tz is None else df["date"].dt.tz_convert("UTC")
-            mask = (dates >= ch_start) & (dates <= ch_end + pd.Timedelta(days=1))
-            user_meters = int(df.loc[mask, "distance_m"].sum())
-
         with st.container():
-            col_info, col_stats = st.columns([3, 2])
-            with col_info:
-                st.markdown(f"**{ch['name']}**")
-                st.caption(ch.get("description", ""))
-                st.caption(
-                    f"{ch_start.strftime('%b %-d')} – {ch_end.strftime('%b %-d, %Y')}  ·  "
-                    f"{ch.get('activity', '')}  ·  {ch.get('category', '')}"
-                )
-                link = ch.get("link", "")
-                if link:
-                    st.markdown(f"[View on Concept2 →]({link})")
-            with col_stats:
-                if user_meters:
-                    st.metric("Your meters this challenge", f"{user_meters:,} m")
-                else:
-                    st.caption("No logged meters in this challenge window yet.")
+            st.markdown(f"**{ch['name']}**")
+            st.caption(ch.get("description", ""))
+            details = f"{ch_start.strftime('%b %-d')} – {ch_end.strftime('%b %-d, %Y')}"
+            activity = ch.get("activity", "")
+            category = ch.get("category", "")
+            if activity:
+                details += f"  ·  {activity}"
+            if category:
+                details += f"  ·  {category}"
+            st.caption(details)
+            link = ch.get("link", "")
+            if link:
+                st.markdown(f"[View on Concept2 →]({link})")
 
         st.markdown("")
 
