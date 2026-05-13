@@ -312,14 +312,12 @@ if not df.empty:
         ["📊 Meters / Week", "📈 Pace Trend", "🔄 SPM Trend", "❤️ Heart Rate Trend"]
     )
 
-    # Strip timezone before charting so Plotly uses plain datetimes and
-    # doesn't pick sub-day tick intervals that produce duplicate date labels.
-    _WEEK_MS = 7 * 24 * 60 * 60 * 1000  # one week in milliseconds
-
+    # Convert datetimes to plain date strings so Plotly uses a string/category
+    # axis — guaranteed one unique label per date with no sub-day tick issues.
     def _x(series: pd.Series) -> pd.Series:
-        """Return tz-naive, time-normalised dates for chart x-axes."""
+        """Return YYYY-MM-DD date strings for chart x-axes."""
         s = series.dt.tz_convert("UTC") if series.dt.tz else series
-        return s.dt.tz_localize(None).dt.normalize()
+        return s.dt.strftime("%Y-%m-%d")
 
     with tab_weekly:
         wm = weekly_meters(df)
@@ -329,7 +327,7 @@ if not df.empty:
             labels={"week": "Week", "meters": "Meters Rowed"},
             color_discrete_sequence=["#00b4d8"],
         )
-        fig.update_xaxes(tickformat="%b %d", dtick=_WEEK_MS)
+        fig.update_xaxes(nticks=10)
         fig.update_layout(margin=dict(t=20), height=380)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -362,7 +360,7 @@ if not df.empty:
                 ticktext=[format_pace(v) for v in range(90, 160, 5)],
                 title="Pace /500m",
             )
-            fig.update_xaxes(title="Date", tickformat="%b %d", dtick=_WEEK_MS)
+            fig.update_xaxes(title="Date", nticks=10)
             fig.update_layout(margin=dict(t=20), height=380)
             st.plotly_chart(fig, use_container_width=True)
 
@@ -382,7 +380,7 @@ if not df.empty:
             mode="lines", name="7-workout avg",
             line=dict(width=2, color="#0077b6"),
         ))
-        fig.update_xaxes(tickformat="%b %d", dtick=_WEEK_MS)
+        fig.update_xaxes(nticks=10)
         fig.update_layout(yaxis_title="Strokes per Minute", xaxis_title="Date",
                           margin=dict(t=20), height=380, legend=dict(orientation="h"))
         st.plotly_chart(fig, use_container_width=True)
@@ -406,7 +404,7 @@ if not df.empty:
                 mode="lines", name="7-workout avg",
                 line=dict(width=2, color="#c1121f"),
             ))
-            fig.update_xaxes(tickformat="%b %d", dtick=_WEEK_MS)
+            fig.update_xaxes(nticks=10)
             fig.update_layout(yaxis_title="Avg Heart Rate (bpm)", xaxis_title="Date",
                               margin=dict(t=20), height=380, legend=dict(orientation="h"))
             st.plotly_chart(fig, use_container_width=True)
