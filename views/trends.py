@@ -1,83 +1,46 @@
 """
-Trends tab — multi-period analytics charts.
+Trends tab — multi-period analytics charts, rewritten with Altair.
 
-Direct port of section 3 ("Progress Charts") with the chart styling brought
-in line with the new dark palette. Logic unchanged.
+Altair (Vega-Lite) handles date axes natively: ticks auto-scale to the
+data range and align exactly to data points. No manual tick position
+arrays needed. Altair ships with Streamlit so there's no extra dependency.
 
 Sub-tabs: Meters / Week · Pace · SPM · Heart rate
 """
+import altair as alt
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 import ui
-from data import format_pace, weekly_meters, pace_trend
+from data import weekly_meters, pace_trend
 
 
 def _strip_tz(series: pd.Series) -> pd.Series:
-    """Plotly's auto-ticking misbehaves with tz-aware datetimes — strip it."""
     if series.dt.tz is not None:
         return series.dt.tz_convert("UTC").dt.tz_localize(None)
     return series
 
 
-def _date_xaxis(df: pd.DataFrame) -> dict:
-    """Explicit tick positions scaled to the data span.
-
-    tickmode="array" with pre-formatted ticktext is used throughout so
-    Plotly never falls back to its own datetime formatter (which appends
-    the time component and makes labels messy).
-
-    Tick density:
-      ≤ 14 days  → daily ticks,       "May 13"
-      ≤ 90 days  → weekly ticks,      "May 13"
-      > 90 days  → month-start ticks, "May '26"
-    """
-    dmin, dmax = df["date"].min(), df["date"].max()
-    if dmin.tz is not None:
-        dmin = dmin.tz_convert("UTC").tz_localize(None)
-        dmax = dmax.tz_convert("UTC").tz_localize(None)
-
-    span = (dmax - dmin).days
-
-    if span <= 14:
-        ticks = pd.date_range(start=dmin.normalize(), end=dmax, freq="D")
-        fmt = "%b %d"
-    elif span <= 90:
-        ticks = pd.date_range(start=dmin.normalize(), end=dmax, freq="W-MON")
-        # Always include the first data point so the axis isn't blank
-        if len(ticks) == 0 or ticks[0] > dmin:
-            ticks = pd.DatetimeIndex([dmin.normalize()]).append(ticks)
-        fmt = "%b %d"
-    else:
-        ticks = pd.date_range(
-            start=dmin.replace(day=1),
-            end=dmax + pd.DateOffset(months=1),
-            freq="MS",
+def _theme(chart):
+    """Apply the dark palette to any Altair chart."""
+    return (
+        chart
+        .configure_axis(
+            gridColor=ui.LINE,
+            domainColor=ui.LINE,
+            tickColor=ui.LINE,
+            labelColor=ui.INK_2,
+            titleColor=ui.INK_2,
+            labelFontSize=11,
         )
-        fmt = "%b '%y"
-
-    return dict(
-        type="date", tickmode="array",
-        tickvals=ticks.tolist(),
-        ticktext=[d.strftime(fmt) for d in ticks],
-        gridcolor=ui.LINE, color=ui.INK_2,
+        .configure_view(strokeWidth=0)
+        .configure_legend(
+            labelColor=ui.INK_1,
+            titleColor=ui.INK_2,
+            orient="top",
+            labelFontSize=11,
+        )
     )
-
-
-def _layout(**extra):
-    """Shared dark-theme layout used by every trend chart."""
-    base = dict(
-        height=320, margin=dict(t=10, l=6, r=6, b=6),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=ui.INK_1, size=11),
-        legend=dict(orientation="h", y=1.12, x=0,
-                    font=dict(size=11, color=ui.INK_1)),
-    )
-    base.update(extra)
-    return base
 
 
 def render(df: pd.DataFrame):
@@ -86,98 +49,144 @@ def render(df: pd.DataFrame):
         return
 
     t_w, t_p, t_s, t_h = st.tabs(["Meters / Week", "Pace", "SPM", "Heart rate"])
-    xaxis = _date_xaxis(df)
 
     with t_w:
-        wm = weekly_meters(df)
-        wm["week"] = _strip_tz(wm["week"])
-        fig = px.bar(
-            wm, x="week", y="meters",
-            labels={"week": "", "meters": "Meters"},
-            color_discrete_sequence=[ui.ACCENT_SEL],
-        )
-        fig.update_xaxes(**xaxis)
-        fig.update_yaxes(gridcolor=ui.LINE, color=ui.INK_2)
-        fig.update_layout(**_layout())
-        st.plotly_chart(fig, use_container_width=True,
-                        config={"displayModeBar": False})
-
+        _chart_weekly(df)
     with t_p:
-        dist_options = {
-            "All distances":          (0, 99999),
-            "Short (≤ 2000m)":        (0, 2000),
-            "Medium (2001 – 6000m)":  (2001, 6000),
-            "Long (> 6000m)":         (6001, 99999),
-        }
-        chosen = st.selectbox("Filter by distance", list(dist_options.keys()),
-                              key="trends_pace_filter",
-                              label_visibility="collapsed")
-        lo, hi = dist_options[chosen]
-        pt = pace_trend(df, lo, hi)
-        if pt.empty:
-            st.info("No workouts match this filter.")
-        else:
-            x = _strip_tz(pt["date"])
-            fig = go.Figure(go.Scatter(
-                x=x, y=pt["pace_s"],
-                mode="markers+lines",
-                marker=dict(size=6, color=ui.ACCENT_SEL),
-                line=dict(width=1.5, color=ui.ACCENT_SEL),
-                text=pt.apply(lambda r: f"{r['label']}<br>{r['pace']}", axis=1),
-                hovertemplate="%{x|%Y-%m-%d}<br>%{text}<extra></extra>",
-            ))
-            fig.update_yaxes(
-                autorange="reversed",
-                tickvals=list(range(90, 160, 5)),
-                ticktext=[format_pace(v) for v in range(90, 160, 5)],
-                gridcolor=ui.LINE, color=ui.INK_2, title="",
-            )
-            fig.update_xaxes(**xaxis)
-            fig.update_layout(**_layout())
-            st.plotly_chart(fig, use_container_width=True,
-                            config={"displayModeBar": False})
-
+        _chart_pace(df)
     with t_s:
-        spm_df = df.sort_values("date")[["date", "spm", "label"]].dropna()
-        x = _strip_tz(spm_df["date"])
-        roll = spm_df["spm"].rolling(7, min_periods=1).mean()
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=x, y=spm_df["spm"], mode="markers", name="SPM",
-            marker=dict(size=5, color=ui.INK_2),
-            text=spm_df["label"],
-            hovertemplate="%{x|%Y-%m-%d}<br>%{text}<br>%{y} SPM<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=x, y=roll, mode="lines", name="7-workout avg",
-            line=dict(width=2, color=ui.ACCENT_SEL),
-        ))
-        fig.update_xaxes(**xaxis)
-        fig.update_yaxes(gridcolor=ui.LINE, color=ui.INK_2, title="")
-        fig.update_layout(**_layout())
-        st.plotly_chart(fig, use_container_width=True,
-                        config={"displayModeBar": False})
-
+        _chart_spm(df)
     with t_h:
-        hr_df = df[df["hr_avg"] > 0].sort_values("date")[["date", "hr_avg", "label"]]
-        if hr_df.empty:
-            st.info("No heart rate data available.")
-        else:
-            x = _strip_tz(hr_df["date"])
-            roll = hr_df["hr_avg"].rolling(7, min_periods=1).mean()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=x, y=hr_df["hr_avg"], mode="markers", name="Avg HR",
-                marker=dict(size=5, color=ui.INK_2),
-                text=hr_df["label"],
-                hovertemplate="%{x|%Y-%m-%d}<br>%{text}<br>%{y} bpm<extra></extra>",
-            ))
-            fig.add_trace(go.Scatter(
-                x=x, y=roll, mode="lines", name="7-workout avg",
-                line=dict(width=2, color=ui.ACCENT_WARN),
-            ))
-            fig.update_xaxes(**xaxis)
-            fig.update_yaxes(gridcolor=ui.LINE, color=ui.INK_2, title="")
-            fig.update_layout(**_layout())
-            st.plotly_chart(fig, use_container_width=True,
-                            config={"displayModeBar": False})
+        _chart_hr(df)
+
+
+def _chart_weekly(df: pd.DataFrame):
+    wm = weekly_meters(df).copy()
+    wm["week"] = _strip_tz(wm["week"])
+
+    chart = (
+        alt.Chart(wm)
+        .mark_bar(color=ui.ACCENT_SEL, cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+        .encode(
+            x=alt.X("week:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+            y=alt.Y("meters:Q", axis=alt.Axis(title=None)),
+            tooltip=[
+                alt.Tooltip("week:T", format="%b %d, %Y", title="Week of"),
+                alt.Tooltip("meters:Q", format=",", title="Meters"),
+            ],
+        )
+        .properties(height=320)
+    )
+    st.altair_chart(_theme(chart), use_container_width=True)
+
+
+def _chart_pace(df: pd.DataFrame):
+    dist_options = {
+        "All distances":          (0, 99999),
+        "Short (≤ 2000m)":        (0, 2000),
+        "Medium (2001 – 6000m)":  (2001, 6000),
+        "Long (> 6000m)":         (6001, 99999),
+    }
+    chosen = st.selectbox(
+        "Filter by distance", list(dist_options.keys()),
+        key="trends_pace_filter", label_visibility="collapsed",
+    )
+    lo, hi = dist_options[chosen]
+    pt = pace_trend(df, lo, hi)
+
+    if pt.empty:
+        st.info("No workouts match this filter.")
+        return
+
+    pt = pt.copy()
+    pt["date"] = _strip_tz(pt["date"])
+
+    # Vega expression to format seconds as M:SS on the y-axis labels
+    pace_label_expr = (
+        "floor(datum.value / 60) + ':' + "
+        "(floor(datum.value % 60) < 10 ? '0' + floor(datum.value % 60) "
+        ": '' + floor(datum.value % 60))"
+    )
+
+    base = alt.Chart(pt).encode(
+        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+        y=alt.Y(
+            "pace_s:Q",
+            scale=alt.Scale(reverse=True),
+            axis=alt.Axis(labelExpr=pace_label_expr, title=None),
+        ),
+        tooltip=[
+            alt.Tooltip("date:T", format="%Y-%m-%d", title="Date"),
+            alt.Tooltip("label:N", title="Workout"),
+            alt.Tooltip("pace:N", title="Pace /500m"),
+        ],
+    )
+
+    chart = (
+        base.mark_line(color=ui.ACCENT_SEL, strokeWidth=1.5)
+        + base.mark_point(color=ui.ACCENT_SEL, filled=True, size=50)
+    ).properties(height=320)
+
+    st.altair_chart(_theme(chart), use_container_width=True)
+
+
+def _chart_spm(df: pd.DataFrame):
+    spm_df = df.sort_values("date")[["date", "spm", "label"]].dropna().copy()
+    spm_df["date"] = _strip_tz(spm_df["date"])
+    spm_df["avg7"] = spm_df["spm"].rolling(7, min_periods=1).mean()
+
+    base = alt.Chart(spm_df).encode(
+        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+    )
+    points = base.mark_point(color=ui.INK_2, filled=True, size=35, opacity=0.8).encode(
+        y=alt.Y("spm:Q", axis=alt.Axis(title=None)),
+        tooltip=[
+            alt.Tooltip("date:T", format="%Y-%m-%d", title="Date"),
+            alt.Tooltip("label:N", title="Workout"),
+            alt.Tooltip("spm:Q", title="SPM"),
+        ],
+    )
+    line = base.mark_line(color=ui.ACCENT_SEL, strokeWidth=2).encode(
+        y=alt.Y("avg7:Q"),
+    )
+    chart = (
+        alt.layer(points, line)
+        .resolve_scale(y="shared")
+        .properties(height=320)
+    )
+    st.altair_chart(_theme(chart), use_container_width=True)
+
+
+def _chart_hr(df: pd.DataFrame):
+    hr_df = (
+        df[df["hr_avg"] > 0]
+        .sort_values("date")[["date", "hr_avg", "label"]]
+        .copy()
+    )
+    if hr_df.empty:
+        st.info("No heart rate data available.")
+        return
+
+    hr_df["date"] = _strip_tz(hr_df["date"])
+    hr_df["avg7"] = hr_df["hr_avg"].rolling(7, min_periods=1).mean()
+
+    base = alt.Chart(hr_df).encode(
+        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+    )
+    points = base.mark_point(color=ui.INK_2, filled=True, size=35, opacity=0.8).encode(
+        y=alt.Y("hr_avg:Q", axis=alt.Axis(title=None)),
+        tooltip=[
+            alt.Tooltip("date:T", format="%Y-%m-%d", title="Date"),
+            alt.Tooltip("label:N", title="Workout"),
+            alt.Tooltip("hr_avg:Q", title="Avg HR"),
+        ],
+    )
+    line = base.mark_line(color=ui.ACCENT_WARN, strokeWidth=2).encode(
+        y=alt.Y("avg7:Q"),
+    )
+    chart = (
+        alt.layer(points, line)
+        .resolve_scale(y="shared")
+        .properties(height=320)
+    )
+    st.altair_chart(_theme(chart), use_container_width=True)
