@@ -8,12 +8,12 @@ Replaces section 2 (recent table + inline detail). Changes:
     that existed in the original, so external code that reads it still works.
   • Hero stats reduced from 9 to 2 + 4; everything else is in the splits chart.
 """
+import altair as alt
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 import ui
-from data import format_pace, format_duration
+from data import format_duration
 
 
 def render(df: pd.DataFrame):
@@ -123,34 +123,50 @@ def _render_detail(row: pd.Series):
             f"text-transform:uppercase;font-weight:600;margin:18px 0 6px;'>"
             f"Splits</div>"
         )
-        pace_vals = [s["pace"] for s in splits]
-        y_min, y_max = min(pace_vals) - 2, max(pace_vals) + 2
-        fastest_idx = pace_vals.index(min(pace_vals))
-        colors = [
-            ui.ACCENT_PR if i == fastest_idx else ui.ACCENT_SEL
-            for i in range(len(splits))
-        ]
-        fig = go.Figure(go.Bar(
-            x=[str(s["split_number"]) for s in splits],
-            y=pace_vals,
-            marker_color=colors,
-            text=[s["pace_formatted"] for s in splits],
-            textposition="outside",
-            textfont=dict(size=10, color=ui.INK_1),
-        ))
-        fig.update_yaxes(
-            range=[y_max, y_min],
-            tickvals=list(range(int(y_min), int(y_max) + 1, 2)),
-            ticktext=[format_pace(v) for v in range(int(y_min), int(y_max) + 1, 2)],
-            gridcolor=ui.LINE, color=ui.INK_2,
+        splits_df = pd.DataFrame([{
+            "split": str(s["split_number"]),
+            "pace":  s["pace"],
+            "fmt":   s["pace_formatted"],
+        } for s in splits])
+
+        fastest = splits_df["pace"].min()
+        y_min = fastest - 2
+        y_max = splits_df["pace"].max() + 2
+        splits_df["y_base"] = y_max  # bar anchor at chart bottom
+        splits_df["type"] = splits_df["pace"].apply(
+            lambda p: "fastest" if p == fastest else "normal"
         )
-        fig.update_xaxes(showgrid=False, color=ui.INK_2,
-                         title=dict(text="Split", font=dict(size=10, color=ui.INK_2)))
-        fig.update_layout(
-            height=280, margin=dict(t=20, l=6, r=6, b=6),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            showlegend=False,
+
+        pace_expr = (
+            "floor(datum.value/60)+':'+"
+            "(floor(datum.value%60)<10?'0'+floor(datum.value%60):''+floor(datum.value%60))"
         )
-        st.plotly_chart(fig, use_container_width=True,
-                        config={"displayModeBar": False})
+        y_enc = alt.Y(
+            "pace:Q",
+            scale=alt.Scale(domain=[y_min, y_max], reverse=True),
+            axis=alt.Axis(labelExpr=pace_expr, title=None),
+        )
+        color_enc = alt.Color(
+            "type:N",
+            scale=alt.Scale(
+                domain=["fastest", "normal"],
+                range=[ui.ACCENT_PR, ui.ACCENT_SEL],
+            ),
+            legend=None,
+        )
+        x_enc = alt.X("split:O", axis=alt.Axis(title="Split", labelAngle=0))
+
+        bars = (
+            alt.Chart(splits_df)
+            .mark_bar(cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
+            .encode(x=x_enc, y=y_enc, y2=alt.Y2("y_base:Q"), color=color_enc,
+                    tooltip=[alt.Tooltip("split:O", title="Split"),
+                              alt.Tooltip("fmt:N", title="Pace")])
+        )
+        labels = (
+            alt.Chart(splits_df)
+            .mark_text(baseline="bottom", dy=-3, fontSize=10)
+            .encode(x=x_enc, y=y_enc, text="fmt:N", color=color_enc)
+        )
+        chart = (bars + labels).properties(height=280)
+        st.altair_chart(ui.altair_theme(chart), use_container_width=True)

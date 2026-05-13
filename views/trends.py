@@ -24,27 +24,6 @@ def _to_day(series: pd.Series) -> pd.Series:
     return series.dt.normalize()
 
 
-def _theme(chart):
-    """Apply the dark palette to any Altair chart."""
-    return (
-        chart
-        .configure_axis(
-            gridColor=ui.LINE,
-            domainColor=ui.LINE,
-            tickColor=ui.LINE,
-            labelColor=ui.INK_2,
-            titleColor=ui.INK_2,
-            labelFontSize=11,
-        )
-        .configure_view(strokeWidth=0)
-        .configure_legend(
-            labelColor=ui.INK_1,
-            titleColor=ui.INK_2,
-            orient="top",
-            labelFontSize=11,
-        )
-    )
-
 
 def render(df: pd.DataFrame):
     if df.empty:
@@ -80,7 +59,7 @@ def _chart_weekly(df: pd.DataFrame):
         )
         .properties(height=320)
     )
-    st.altair_chart(_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
 
 
 def _chart_pace(df: pd.DataFrame):
@@ -130,7 +109,7 @@ def _chart_pace(df: pd.DataFrame):
         + base.mark_point(color=ui.ACCENT_SEL, filled=True, size=50)
     ).properties(height=320)
 
-    st.altair_chart(_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
 
 
 def _chart_spm(df: pd.DataFrame):
@@ -157,7 +136,7 @@ def _chart_spm(df: pd.DataFrame):
         .resolve_scale(y="shared")
         .properties(height=320)
     )
-    st.altair_chart(_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
 
 
 def _chart_hr(df: pd.DataFrame):
@@ -192,4 +171,4 @@ def _chart_hr(df: pd.DataFrame):
         .resolve_scale(y="shared")
         .properties(height=320)
     )
-    st.altair_chart(_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)

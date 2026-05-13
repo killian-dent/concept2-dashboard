@@ -221,3 +221,31 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
         f'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
         f'</svg>'
     )
+
+
+# ── Altair chart theme ────────────────────────────────────────────────────
+
+def altair_theme(chart):
+    """Apply the dark palette to any Altair chart.
+
+    Call as the last step before st.altair_chart():
+        st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    """
+    return (
+        chart
+        .configure_axis(
+            gridColor=LINE,
+            domainColor=LINE,
+            tickColor=LINE,
+            labelColor=INK_2,
+            titleColor=INK_2,
+            labelFontSize=11,
+        )
+        .configure_view(strokeWidth=0)
+        .configure_legend(
+            labelColor=INK_1,
+            titleColor=INK_2,
+            orient="top",
+            labelFontSize=11,
+        )
+    )

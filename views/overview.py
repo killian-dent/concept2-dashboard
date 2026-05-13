@@ -9,13 +9,13 @@ Replaces the original section 1 (6-metric strip) and reframes it as:
 Lifetime totals (which used to occupy half of section 1) move into the Records
 tab, where they belong; the home screen is for "how am I doing right now?"
 """
+import altair as alt
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
 import ui
-from data import format_pace, format_duration
+from data import format_pace
 from data_extras import compute_period_kpis, daily_meters
 
 
@@ -122,30 +122,40 @@ def _section_label(text: str, trailing_link: str = None, tab_name: str = None):
 
 def _render_heatmap(df: pd.DataFrame):
     daily = daily_meters(df, days=84)
-    pivot = (daily.pivot_table(index="dow", columns="week",
-                               values="meters", aggfunc="sum")
-                  .reindex(range(7)).fillna(0))
+    dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    daily["dow_name"] = daily["dow"].map(dict(enumerate(dow_names)))
+    week_order = ["W" + str(i) for i in sorted(daily["week"].unique())]
+    daily["week_label"] = "W" + daily["week"].astype(str)
 
-    fig = go.Figure(go.Heatmap(
-        z=pivot.values,
-        x=[f"W{i}" for i in pivot.columns],
-        y=["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-        colorscale=[[0, ui.BG_2], [1, ui.ACCENT_SEL]],
-        showscale=False,
-        hovertemplate="%{y} · %{z:,.0f}m<extra></extra>",
-        xgap=2, ygap=2,
-    ))
-    fig.update_layout(
-        height=200,
-        margin=dict(t=4, b=4, l=4, r=4),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=ui.INK_2, size=10),
-        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(size=9)),
-        yaxis=dict(showgrid=False, zeroline=False, autorange="reversed"),
+    chart = (
+        alt.Chart(daily)
+        .mark_rect()
+        .encode(
+            x=alt.X("week_label:O", sort=week_order,
+                     axis=alt.Axis(title=None, labelAngle=0, labelFontSize=9)),
+            y=alt.Y("dow_name:O", sort=dow_names,
+                     axis=alt.Axis(title=None, labelFontSize=9)),
+            color=alt.Color(
+                "meters:Q",
+                scale=alt.Scale(range=[ui.BG_2, ui.ACCENT_SEL]),
+                legend=None,
+            ),
+            tooltip=[
+                alt.Tooltip("dow_name:N", title="Day"),
+                alt.Tooltip("week_label:N", title="Week"),
+                alt.Tooltip("meters:Q", format=",", title="Meters"),
+            ],
+        )
+        .properties(height=160)
+        .configure_axis(
+            domainColor="transparent",
+            tickColor="transparent",
+            gridColor="transparent",
+            labelColor=ui.INK_2,
+        )
+        .configure_view(strokeWidth=0)
     )
-    st.plotly_chart(fig, use_container_width=True,
-                    config={"displayModeBar": False})
+    st.altair_chart(chart, use_container_width=True)
 
 
 def _render_recent(rows: pd.DataFrame):

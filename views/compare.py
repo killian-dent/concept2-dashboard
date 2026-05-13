@@ -11,12 +11,11 @@ The UX is:
   3. Look at the delta band, the overlaid pace curves, and the per-split
      table to see exactly where the difference came from.
 """
+import altair as alt
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 import ui
-from data import format_pace
 
 
 def render(df: pd.DataFrame):
@@ -120,44 +119,54 @@ def _render_overlay(a, b):
         st.caption("One of these workouts has no split data.")
         return
 
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=[s["split_number"] for s in sa],
-        y=[s["pace"] for s in sa],
-        mode="lines+markers",
-        name=f"A · {a['date'].strftime('%b %d')}",
-        line=dict(color=ui.ACCENT_SEL, width=2),
-        marker=dict(size=6, color=ui.ACCENT_SEL),
-    ))
-    fig.add_trace(go.Scatter(
-        x=[s["split_number"] for s in sb],
-        y=[s["pace"] for s in sb],
-        mode="lines+markers",
-        name=f"B · {b['date'].strftime('%b %d')}",
-        line=dict(color=ui.ACCENT_WARN, width=2),
-        marker=dict(size=6, color=ui.ACCENT_WARN),
-    ))
-    all_paces = [s["pace"] for s in sa] + [s["pace"] for s in sb]
-    y_min, y_max = min(all_paces) - 2, max(all_paces) + 2
-    fig.update_yaxes(
-        range=[y_max, y_min],
-        tickvals=list(range(int(y_min), int(y_max) + 1, 2)),
-        ticktext=[format_pace(v) for v in range(int(y_min), int(y_max) + 1, 2)],
-        gridcolor=ui.LINE, color=ui.INK_2,
+    label_a = f"A · {a['date'].strftime('%b %d')}"
+    label_b = f"B · {b['date'].strftime('%b %d')}"
+
+    rows = (
+        [{"split": s["split_number"], "pace": s["pace"],
+          "fmt": s["pace_formatted"], "workout": label_a} for s in sa]
+        + [{"split": s["split_number"], "pace": s["pace"],
+            "fmt": s["pace_formatted"], "workout": label_b} for s in sb]
     )
-    fig.update_xaxes(
-        showgrid=False, color=ui.INK_2,
-        title=dict(text="Split", font=dict(size=10, color=ui.INK_2)),
+    df = pd.DataFrame(rows)
+
+    all_paces = df["pace"].tolist()
+    y_min = min(all_paces) - 2
+    y_max = max(all_paces) + 2
+
+    pace_expr = (
+        "floor(datum.value/60)+':'+"
+        "(floor(datum.value%60)<10?'0'+floor(datum.value%60):''+floor(datum.value%60))"
     )
-    fig.update_layout(
-        height=290, margin=dict(t=10, l=6, r=6, b=6),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", y=1.12, x=0,
-                    font=dict(size=11, color=ui.INK_1)),
+
+    base = alt.Chart(df).encode(
+        x=alt.X("split:O", axis=alt.Axis(title="Split", labelAngle=0)),
+        y=alt.Y(
+            "pace:Q",
+            scale=alt.Scale(domain=[y_min, y_max], reverse=True),
+            axis=alt.Axis(labelExpr=pace_expr, title=None),
+        ),
+        color=alt.Color(
+            "workout:N",
+            scale=alt.Scale(
+                domain=[label_a, label_b],
+                range=[ui.ACCENT_SEL, ui.ACCENT_WARN],
+            ),
+            legend=alt.Legend(title=None),
+        ),
+        tooltip=[
+            alt.Tooltip("split:O", title="Split"),
+            alt.Tooltip("workout:N", title="Workout"),
+            alt.Tooltip("fmt:N", title="Pace"),
+        ],
     )
-    st.plotly_chart(fig, use_container_width=True,
-                    config={"displayModeBar": False})
+
+    chart = (
+        base.mark_line(strokeWidth=2)
+        + base.mark_point(filled=True, size=50)
+    ).properties(height=290)
+
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
 
 
 def _render_split_table(a, b):
