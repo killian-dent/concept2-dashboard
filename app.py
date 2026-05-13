@@ -312,22 +312,34 @@ if not df.empty:
         ["📊 Meters / Week", "📈 Pace Trend", "🔄 SPM Trend", "❤️ Heart Rate Trend"]
     )
 
-    # Convert datetimes to plain date strings so Plotly uses a string/category
-    # axis — guaranteed one unique label per date with no sub-day tick issues.
-    def _x(series: pd.Series) -> pd.Series:
-        """Return YYYY-MM-DD date strings for chart x-axes."""
-        s = series.dt.tz_convert("UTC") if series.dt.tz else series
-        return s.dt.strftime("%Y-%m-%d")
+    # ── Chart helpers ─────────────────────────────────────────────────────
+    # All charts use a proper Plotly date axis with monthly tick marks.
+    # Key: pass tz-naive datetime64[ns] values so Plotly doesn't inject
+    # sub-day ticks, and use dtick="M1" for clean calendar-month labels.
+
+    def _strip_tz(series: pd.Series) -> pd.Series:
+        """Return tz-naive datetimes for Plotly (avoids sub-day auto-ticking)."""
+        if series.dt.tz is not None:
+            return series.dt.tz_convert("UTC").dt.tz_localize(None)
+        return series
+
+    _DATE_XAXIS = dict(
+        type="date",
+        tickformat="%b '%y",   # "Nov '25", "Dec '25", …
+        dtick="M1",            # one tick per calendar month
+        ticklabelmode="period",
+        title="Date",
+    )
 
     with tab_weekly:
         wm = weekly_meters(df)
-        wm["week"] = _x(wm["week"])
+        wm["week"] = _strip_tz(wm["week"])
         fig = px.bar(
             wm, x="week", y="meters",
             labels={"week": "Week", "meters": "Meters Rowed"},
             color_discrete_sequence=["#00b4d8"],
         )
-        fig.update_xaxes(nticks=10)
+        fig.update_xaxes(**_DATE_XAXIS)
         fig.update_layout(margin=dict(t=20), height=380)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -345,9 +357,10 @@ if not df.empty:
         if pt.empty:
             st.info("No workouts match this filter.")
         else:
+            x_vals = _strip_tz(pt["date"])
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=_x(pt["date"]), y=pt["pace_s"],
+                x=x_vals, y=pt["pace_s"],
                 mode="markers+lines",
                 marker=dict(size=6, color="#00b4d8"),
                 line=dict(width=1.5, color="#00b4d8"),
@@ -360,28 +373,29 @@ if not df.empty:
                 ticktext=[format_pace(v) for v in range(90, 160, 5)],
                 title="Pace /500m",
             )
-            fig.update_xaxes(title="Date", nticks=10)
+            fig.update_xaxes(**_DATE_XAXIS)
             fig.update_layout(margin=dict(t=20), height=380)
             st.plotly_chart(fig, use_container_width=True)
 
     with tab_spm:
         spm_df = df.sort_values("date")[["date", "spm", "label"]].dropna()
+        x_vals = _strip_tz(spm_df["date"])
         spm_roll = spm_df["spm"].rolling(7, min_periods=1).mean()
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=_x(spm_df["date"]), y=spm_df["spm"],
+            x=x_vals, y=spm_df["spm"],
             mode="markers", name="SPM",
             marker=dict(size=6, color="#48cae4"),
             text=spm_df["label"],
             hovertemplate="%{x|%Y-%m-%d}<br>%{text}<br>%{y} SPM<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=_x(spm_df["date"]), y=spm_roll,
+            x=x_vals, y=spm_roll,
             mode="lines", name="7-workout avg",
             line=dict(width=2, color="#0077b6"),
         ))
-        fig.update_xaxes(nticks=10)
-        fig.update_layout(yaxis_title="Strokes per Minute", xaxis_title="Date",
+        fig.update_xaxes(**_DATE_XAXIS)
+        fig.update_layout(yaxis_title="Strokes per Minute",
                           margin=dict(t=20), height=380, legend=dict(orientation="h"))
         st.plotly_chart(fig, use_container_width=True)
 
@@ -390,22 +404,23 @@ if not df.empty:
         if hr_df.empty:
             st.info("No heart rate data available.")
         else:
+            x_vals = _strip_tz(hr_df["date"])
             hr_roll = hr_df["hr_avg"].rolling(7, min_periods=1).mean()
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=_x(hr_df["date"]), y=hr_df["hr_avg"],
+                x=x_vals, y=hr_df["hr_avg"],
                 mode="markers", name="Avg HR",
                 marker=dict(size=6, color="#ef476f"),
                 text=hr_df["label"],
                 hovertemplate="%{x|%Y-%m-%d}<br>%{text}<br>%{y} bpm<extra></extra>",
             ))
             fig.add_trace(go.Scatter(
-                x=_x(hr_df["date"]), y=hr_roll,
+                x=x_vals, y=hr_roll,
                 mode="lines", name="7-workout avg",
                 line=dict(width=2, color="#c1121f"),
             ))
-            fig.update_xaxes(nticks=10)
-            fig.update_layout(yaxis_title="Avg Heart Rate (bpm)", xaxis_title="Date",
+            fig.update_xaxes(**_DATE_XAXIS)
+            fig.update_layout(yaxis_title="Avg Heart Rate (bpm)",
                               margin=dict(t=20), height=380, legend=dict(orientation="h"))
             st.plotly_chart(fig, use_container_width=True)
 
