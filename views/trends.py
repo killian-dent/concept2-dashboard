@@ -23,20 +23,45 @@ def _strip_tz(series: pd.Series) -> pd.Series:
 
 
 def _date_xaxis(df: pd.DataFrame) -> dict:
-    """Explicit month-start tick positions (bulletproof across Plotly vers)."""
+    """Explicit tick positions scaled to the data span.
+
+    tickmode="array" with pre-formatted ticktext is used throughout so
+    Plotly never falls back to its own datetime formatter (which appends
+    the time component and makes labels messy).
+
+    Tick density:
+      ≤ 14 days  → daily ticks,       "May 13"
+      ≤ 90 days  → weekly ticks,      "May 13"
+      > 90 days  → month-start ticks, "May '26"
+    """
     dmin, dmax = df["date"].min(), df["date"].max()
     if dmin.tz is not None:
         dmin = dmin.tz_convert("UTC").tz_localize(None)
         dmax = dmax.tz_convert("UTC").tz_localize(None)
-    ticks = pd.date_range(
-        start=dmin.replace(day=1),
-        end=dmax + pd.DateOffset(months=1),
-        freq="MS",
-    )
+
+    span = (dmax - dmin).days
+
+    if span <= 14:
+        ticks = pd.date_range(start=dmin.normalize(), end=dmax, freq="D")
+        fmt = "%b %d"
+    elif span <= 90:
+        ticks = pd.date_range(start=dmin.normalize(), end=dmax, freq="W-MON")
+        # Always include the first data point so the axis isn't blank
+        if len(ticks) == 0 or ticks[0] > dmin:
+            ticks = pd.DatetimeIndex([dmin.normalize()]).append(ticks)
+        fmt = "%b %d"
+    else:
+        ticks = pd.date_range(
+            start=dmin.replace(day=1),
+            end=dmax + pd.DateOffset(months=1),
+            freq="MS",
+        )
+        fmt = "%b '%y"
+
     return dict(
         type="date", tickmode="array",
         tickvals=ticks.tolist(),
-        ticktext=[d.strftime("%b '%y") for d in ticks],
+        ticktext=[d.strftime(fmt) for d in ticks],
         gridcolor=ui.LINE, color=ui.INK_2,
     )
 
