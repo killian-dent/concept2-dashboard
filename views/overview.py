@@ -12,6 +12,7 @@ tab, where they belong; the home screen is for "how am I doing right now?"
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 import ui
 from data import format_pace, format_duration
@@ -72,26 +73,50 @@ def render(df: pd.DataFrame):
     _render_heatmap(df)
 
     # ── Recent ───────────────────────────────────────────────────────────
-    _section_label("Recent", trailing_link="View all in Workouts →")
+    _section_label("Recent", trailing_link="View all in Workouts →", tab_name="Workouts")
     _render_recent(df.head(6))
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-def _section_label(text: str, trailing_link: str = None):
-    """Small uppercase section heading with optional right-aligned link."""
-    right = (
-        f"<a style='font-size:11px;color:{ui.ACCENT_SEL};text-decoration:none;'>"
-        f"{trailing_link}</a>"
-        if trailing_link else ""
-    )
-    st.html(
-        f"<div style='display:flex;justify-content:space-between;"
-        f"align-items:baseline;margin:20px 4px 8px;'>"
-        f"<div style='font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;"
-        f"text-transform:uppercase;font-weight:600;'>{text}</div>"
-        f"{right}</div>"
-    )
+def _section_label(text: str, trailing_link: str = None, tab_name: str = None):
+    """Small uppercase section heading with optional right-aligned link.
+
+    When tab_name is provided the link uses window.parent JS to click the
+    matching Streamlit tab button — the only way to switch tabs programmatically.
+    Uses components.html (which allows JS) instead of st.html (which doesn't).
+    """
+    if trailing_link and tab_name:
+        js = (
+            f"var tabs=window.parent.document.querySelectorAll('[data-baseweb=\"tab\"]');"
+            f"for(var i=0;i<tabs.length;i++){{"
+            f"if(tabs[i].innerText.trim()==='{tab_name}'){{tabs[i].click();break;}}}}"
+        )
+        components.html(
+            f"""
+            <style>
+              body {{ margin: 0; padding: 0; background: transparent; }}
+            </style>
+            <div style="display:flex;justify-content:space-between;align-items:baseline;
+                        padding:20px 4px 8px;
+                        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+              <div style="font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;
+                          text-transform:uppercase;font-weight:600;">{text}</div>
+              <a onclick="{js};return false;" href="#"
+                 style="font-size:11px;color:{ui.ACCENT_SEL};text-decoration:none;
+                        cursor:pointer;">{trailing_link}</a>
+            </div>
+            """,
+            height=48,
+        )
+    else:
+        st.html(
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:baseline;margin:20px 4px 8px;'>"
+            f"<div style='font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;"
+            f"text-transform:uppercase;font-weight:600;'>{text}</div>"
+            f"</div>"
+        )
 
 
 def _render_heatmap(df: pd.DataFrame):
