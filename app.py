@@ -312,14 +312,24 @@ if not df.empty:
         ["📊 Meters / Week", "📈 Pace Trend", "🔄 SPM Trend", "❤️ Heart Rate Trend"]
     )
 
+    # Strip timezone before charting so Plotly uses plain datetimes and
+    # doesn't pick sub-day tick intervals that produce duplicate date labels.
+    _WEEK_MS = 7 * 24 * 60 * 60 * 1000  # one week in milliseconds
+
+    def _x(series: pd.Series) -> pd.Series:
+        """Return tz-naive, time-normalised dates for chart x-axes."""
+        s = series.dt.tz_convert("UTC") if series.dt.tz else series
+        return s.dt.tz_localize(None).dt.normalize()
+
     with tab_weekly:
         wm = weekly_meters(df)
+        wm["week"] = _x(wm["week"])
         fig = px.bar(
             wm, x="week", y="meters",
             labels={"week": "Week", "meters": "Meters Rowed"},
             color_discrete_sequence=["#00b4d8"],
         )
-        fig.update_xaxes(tickformat="%b %d")
+        fig.update_xaxes(tickformat="%b %d", dtick=_WEEK_MS)
         fig.update_layout(margin=dict(t=20), height=380)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -339,7 +349,7 @@ if not df.empty:
         else:
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=pt["date"], y=pt["pace_s"],
+                x=_x(pt["date"]), y=pt["pace_s"],
                 mode="markers+lines",
                 marker=dict(size=6, color="#00b4d8"),
                 line=dict(width=1.5, color="#00b4d8"),
@@ -352,7 +362,7 @@ if not df.empty:
                 ticktext=[format_pace(v) for v in range(90, 160, 5)],
                 title="Pace /500m",
             )
-            fig.update_xaxes(title="Date", tickformat="%b %d")
+            fig.update_xaxes(title="Date", tickformat="%b %d", dtick=_WEEK_MS)
             fig.update_layout(margin=dict(t=20), height=380)
             st.plotly_chart(fig, use_container_width=True)
 
@@ -361,18 +371,18 @@ if not df.empty:
         spm_roll = spm_df["spm"].rolling(7, min_periods=1).mean()
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=spm_df["date"], y=spm_df["spm"],
+            x=_x(spm_df["date"]), y=spm_df["spm"],
             mode="markers", name="SPM",
             marker=dict(size=6, color="#48cae4"),
             text=spm_df["label"],
             hovertemplate="%{x|%Y-%m-%d}<br>%{text}<br>%{y} SPM<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=spm_df["date"], y=spm_roll,
+            x=_x(spm_df["date"]), y=spm_roll,
             mode="lines", name="7-workout avg",
             line=dict(width=2, color="#0077b6"),
         ))
-        fig.update_xaxes(tickformat="%b %d")
+        fig.update_xaxes(tickformat="%b %d", dtick=_WEEK_MS)
         fig.update_layout(yaxis_title="Strokes per Minute", xaxis_title="Date",
                           margin=dict(t=20), height=380, legend=dict(orientation="h"))
         st.plotly_chart(fig, use_container_width=True)
@@ -385,18 +395,18 @@ if not df.empty:
             hr_roll = hr_df["hr_avg"].rolling(7, min_periods=1).mean()
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                x=hr_df["date"], y=hr_df["hr_avg"],
+                x=_x(hr_df["date"]), y=hr_df["hr_avg"],
                 mode="markers", name="Avg HR",
                 marker=dict(size=6, color="#ef476f"),
                 text=hr_df["label"],
                 hovertemplate="%{x|%Y-%m-%d}<br>%{text}<br>%{y} bpm<extra></extra>",
             ))
             fig.add_trace(go.Scatter(
-                x=hr_df["date"], y=hr_roll,
+                x=_x(hr_df["date"]), y=hr_roll,
                 mode="lines", name="7-workout avg",
                 line=dict(width=2, color="#c1121f"),
             ))
-            fig.update_xaxes(tickformat="%b %d")
+            fig.update_xaxes(tickformat="%b %d", dtick=_WEEK_MS)
             fig.update_layout(yaxis_title="Avg Heart Rate (bpm)", xaxis_title="Date",
                               margin=dict(t=20), height=380, legend=dict(orientation="h"))
             st.plotly_chart(fig, use_container_width=True)
