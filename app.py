@@ -319,6 +319,7 @@ if not df.empty:
             labels={"week": "Week", "meters": "Meters Rowed"},
             color_discrete_sequence=["#00b4d8"],
         )
+        fig.update_xaxes(tickformat="%b %d")
         fig.update_layout(margin=dict(t=20), height=380)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -351,7 +352,7 @@ if not df.empty:
                 ticktext=[format_pace(v) for v in range(90, 160, 5)],
                 title="Pace /500m",
             )
-            fig.update_xaxes(title="Date")
+            fig.update_xaxes(title="Date", tickformat="%b %d")
             fig.update_layout(margin=dict(t=20), height=380)
             st.plotly_chart(fig, use_container_width=True)
 
@@ -371,6 +372,7 @@ if not df.empty:
             mode="lines", name="7-workout avg",
             line=dict(width=2, color="#0077b6"),
         ))
+        fig.update_xaxes(tickformat="%b %d")
         fig.update_layout(yaxis_title="Strokes per Minute", xaxis_title="Date",
                           margin=dict(t=20), height=380, legend=dict(orientation="h"))
         st.plotly_chart(fig, use_container_width=True)
@@ -394,6 +396,7 @@ if not df.empty:
                 mode="lines", name="7-workout avg",
                 line=dict(width=2, color="#c1121f"),
             ))
+            fig.update_xaxes(tickformat="%b %d")
             fig.update_layout(yaxis_title="Avg Heart Rate (bpm)", xaxis_title="Date",
                               margin=dict(t=20), height=380, legend=dict(orientation="h"))
             st.plotly_chart(fig, use_container_width=True)
