@@ -146,6 +146,7 @@ def _normalize(r: dict) -> dict:
             "heart_rate_average": hr.get("average", 0),
             "watts_average":      round(watts_from_pace(pace_s), 1) if pace_s else 0,
             "calories":           r.get("calories_total", 0),
+            "drag_factor":        r.get("drag_factor", 0) or 0,
             "pace":               pace_s,
             "pace_formatted":     format_pace(pace_s),
             "splits":             splits,

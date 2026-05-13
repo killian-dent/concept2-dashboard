@@ -161,15 +161,16 @@ else:
     recent = df.head(20).copy()
 
     display_cols = {
-        "date":       "Date",
-        "label":      "Workout",
-        "distance_m": "Distance (m)",
-        "duration":   "Duration",
-        "pace":       "Pace /500m",
-        "spm":        "SPM",
-        "watts":      "Watts",
-        "calories":   "Cal",
-        "hr_avg":     "Avg HR",
+        "date":        "Date",
+        "label":       "Workout",
+        "distance_m":  "Distance (m)",
+        "duration":    "Duration",
+        "pace":        "Pace /500m",
+        "spm":         "SPM",
+        "watts":       "Watts",
+        "calories":    "Cal",
+        "hr_avg":      "Avg HR",
+        "drag_factor": "Drag",
     }
     display = recent[list(display_cols.keys())].rename(columns=display_cols)
     display["Date"] = display["Date"].dt.strftime("%Y-%m-%d")
@@ -235,10 +236,12 @@ else:
                 h4.metric("Time",     row["duration"])
             h5.metric("Avg Pace", row["pace"])
 
-            r1, r2, r3 = st.columns(3)
-            r1.metric("Avg SPM",   row["spm"])
-            r2.metric("Avg Watts", f"{row['watts']:.0f} W")
-            r3.metric("Calories",  f"{int(row['calories'])} kcal")
+            r1, r2, r3, r4 = st.columns(4)
+            r1.metric("Avg SPM",     row["spm"])
+            r2.metric("Avg Watts",   f"{row['watts']:.0f} W")
+            r3.metric("Calories",    f"{int(row['calories'])} kcal")
+            drag = row.get("drag_factor", 0)
+            r4.metric("Drag Factor", drag if drag else "—")
 
             if has_rest:
                 total_dist = int(row["distance_m"]) + int(rest_dist)

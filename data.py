@@ -221,6 +221,7 @@ def load_results_df(raw_results: tuple) -> pd.DataFrame:
             "hr_avg":           w.get("heart_rate_average", 0),
             "watts":            round(watts, 1),
             "calories":         w.get("calories", 0),
+            "drag_factor":      w.get("drag_factor", 0) or 0,
             "splits":           w.get("splits", []),
         })
     df = pd.DataFrame(rows)
