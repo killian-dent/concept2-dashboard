@@ -152,25 +152,21 @@ def _normalize(r: dict) -> dict:
 # Public API
 # ---------------------------------------------------------------------------
 
-def fetch_results(user_id: Optional[int] = None) -> list[dict]:
+def fetch_results(user_id: Optional[str] = None) -> list[dict]:
     """
-    Return all workout results for the authenticated user.
+    Return all workout results for the given user.
 
     Live path: GET /api/users/{user_id}/results  (paginated)
-    Falls back to sample data when token is a placeholder.
+    user_id may be a numeric string or "me" (Concept2 API shorthand for the
+    authenticated account).  Falls back to sample data when token is a placeholder.
     """
     if is_placeholder_token():
         return generate_sample_results()
 
     # ── REAL API CALL ──────────────────────────────────────────────────────
     if user_id is None:
-        user_id = getattr(config, "USER_ID", None)
-    if not user_id:
-        raise RuntimeError(
-            "USER_ID is not set in config.py.\n"
-            "Find your numeric Concept2 user ID at https://log.concept2.com/profile "
-            "and set USER_ID in config.py."
-        )
+        configured = getattr(config, "USER_ID", None)
+        user_id = str(configured) if configured else "me"
 
     raw = _paginate(f"users/{user_id}/results")
     return [_normalize(r) for r in raw]

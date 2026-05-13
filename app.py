@@ -7,6 +7,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+import config
 from config import is_placeholder_token
 import api
 from data import (
@@ -27,12 +28,17 @@ st.set_page_config(
     page_title="Concept2 Dashboard",
     page_icon="🚣",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="auto",
 )
 
 # ---------------------------------------------------------------------------
 # Session state
 # ---------------------------------------------------------------------------
+
+# User ID to track — defaults to config.USER_ID if set, otherwise "me"
+if "user_id" not in st.session_state:
+    _cfg_uid = getattr(config, "USER_ID", None)
+    st.session_state.user_id = str(_cfg_uid) if _cfg_uid else "me"
 
 if "selected_id" not in st.session_state:
     st.session_state.selected_id = None
@@ -40,12 +46,43 @@ if "selector_ver" not in st.session_state:
     st.session_state.selector_ver = 0
 
 # ---------------------------------------------------------------------------
+# Sidebar — user ID selector
+# ---------------------------------------------------------------------------
+
+with st.sidebar:
+    st.header("👤 Track a User")
+    _uid_input = st.text_input(
+        "Concept2 User ID",
+        value=st.session_state.user_id,
+        help='Enter a numeric Concept2 user ID, or "me" to view the authenticated account.',
+    )
+    if st.button("🔄 Refresh Data", key="sidebar_refresh", use_container_width=True,
+                 help="Reload data for this user (clears the 6-hour cache)"):
+        st.session_state.user_id = _uid_input
+        st.cache_data.clear()
+        st.rerun()
+    # Also reload automatically when the user presses Enter / tabs out
+    if _uid_input != st.session_state.user_id:
+        st.session_state.user_id = _uid_input
+        st.cache_data.clear()
+        st.rerun()
+
+    st.divider()
+    if is_placeholder_token():
+        st.caption(
+            "⚠️ **Sample data** — connect an API token in `config.py` "
+            "to fetch real data for this user."
+        )
+    else:
+        st.caption('Use `"me"` for your own data, or enter another user\'s numeric ID.')
+
+# ---------------------------------------------------------------------------
 # Data loading
 # ---------------------------------------------------------------------------
 
 @st.cache_data(show_spinner="Loading workouts…", ttl=21600)
-def get_data() -> tuple:
-    return tuple(api.fetch_results())
+def get_data(user_id: str) -> tuple:
+    return tuple(api.fetch_results(user_id=user_id))
 
 
 @st.cache_data(show_spinner=False, ttl=21600)
@@ -54,7 +91,7 @@ def get_challenges() -> list:
 
 
 try:
-    raw_results = get_data()
+    raw_results = get_data(st.session_state.user_id)
 except RuntimeError as _e:
     st.error(str(_e))
     st.stop()
