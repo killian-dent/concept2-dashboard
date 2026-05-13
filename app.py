@@ -312,22 +312,34 @@ if not df.empty:
         ["📊 Meters / Week", "📈 Pace Trend", "🔄 SPM Trend", "❤️ Heart Rate Trend"]
     )
 
-    # ── Chart helpers ─────────────────────────────────────────────────────
-    # All charts use a proper Plotly date axis with monthly tick marks.
-    # Key: pass tz-naive datetime64[ns] values so Plotly doesn't inject
-    # sub-day ticks, and use dtick="M1" for clean calendar-month labels.
+    # ── Chart x-axis setup ───────────────────────────────────────────────
+    # Plotly's auto-ticking misbehaves with tz-aware pandas datetimes, so
+    # we strip the timezone and supply explicit tick positions/labels via
+    # tickmode="array".  This is bulletproof regardless of Plotly version.
 
     def _strip_tz(series: pd.Series) -> pd.Series:
-        """Return tz-naive datetimes for Plotly (avoids sub-day auto-ticking)."""
+        """Return tz-naive datetimes for Plotly."""
         if series.dt.tz is not None:
             return series.dt.tz_convert("UTC").dt.tz_localize(None)
         return series
 
+    # Build month-start tick positions covering the data range
+    _dmin = df["date"].min()
+    _dmax = df["date"].max()
+    if _dmin.tz is not None:
+        _dmin = _dmin.tz_convert("UTC").tz_localize(None)
+        _dmax = _dmax.tz_convert("UTC").tz_localize(None)
+    _month_ticks = pd.date_range(
+        start=_dmin.replace(day=1),
+        end=_dmax + pd.DateOffset(months=1),
+        freq="MS",
+    )
+
     _DATE_XAXIS = dict(
         type="date",
-        tickformat="%b '%y",   # "Nov '25", "Dec '25", …
-        dtick="M1",            # one tick per calendar month
-        ticklabelmode="period",
+        tickmode="array",
+        tickvals=_month_ticks.tolist(),
+        ticktext=[d.strftime("%b '%y") for d in _month_ticks],
         title="Date",
     )
 
