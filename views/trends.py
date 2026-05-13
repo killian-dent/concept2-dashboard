@@ -68,7 +68,7 @@ def _chart_weekly(df: pd.DataFrame):
         alt.Chart(wm)
         .mark_bar(color=ui.ACCENT_SEL, cornerRadiusTopLeft=2, cornerRadiusTopRight=2)
         .encode(
-            x=alt.X("week:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+            x=alt.X("week:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30, tickCount="day")),
             y=alt.Y("meters:Q", axis=alt.Axis(title=None)),
             tooltip=[
                 alt.Tooltip("week:T", format="%b %d, %Y", title="Week of"),
@@ -109,7 +109,7 @@ def _chart_pace(df: pd.DataFrame):
     )
 
     base = alt.Chart(pt).encode(
-        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30, tickCount="day")),
         y=alt.Y(
             "pace_s:Q",
             scale=alt.Scale(reverse=True),
@@ -136,7 +136,7 @@ def _chart_spm(df: pd.DataFrame):
     spm_df["avg7"] = spm_df["spm"].rolling(7, min_periods=1).mean()
 
     base = alt.Chart(spm_df).encode(
-        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30, tickCount="day")),
     )
     points = base.mark_point(color=ui.INK_2, filled=True, size=35, opacity=0.8).encode(
         y=alt.Y("spm:Q", axis=alt.Axis(title=None)),
@@ -171,7 +171,7 @@ def _chart_hr(df: pd.DataFrame):
     hr_df["avg7"] = hr_df["hr_avg"].rolling(7, min_periods=1).mean()
 
     base = alt.Chart(hr_df).encode(
-        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30)),
+        x=alt.X("date:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30, tickCount="day")),
     )
     points = base.mark_point(color=ui.INK_2, filled=True, size=35, opacity=0.8).encode(
         y=alt.Y("hr_avg:Q", axis=alt.Axis(title=None)),
