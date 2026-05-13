@@ -15,10 +15,13 @@ import ui
 from data import weekly_meters, pace_trend
 
 
-def _strip_tz(series: pd.Series) -> pd.Series:
+def _to_day(series: pd.Series) -> pd.Series:
+    """Strip timezone and normalize to midnight so data points align with
+    day-boundary ticks. Without this a workout at 7:30am sits between the
+    midnight ticks for its day and the next, making labels appear offset."""
     if series.dt.tz is not None:
-        return series.dt.tz_convert("UTC").dt.tz_localize(None)
-    return series
+        series = series.dt.tz_convert("UTC").dt.tz_localize(None)
+    return series.dt.normalize()
 
 
 def _theme(chart):
@@ -62,7 +65,7 @@ def render(df: pd.DataFrame):
 
 def _chart_weekly(df: pd.DataFrame):
     wm = weekly_meters(df).copy()
-    wm["week"] = _strip_tz(wm["week"])
+    wm["week"] = _to_day(wm["week"])
 
     chart = (
         alt.Chart(wm)
@@ -99,7 +102,7 @@ def _chart_pace(df: pd.DataFrame):
         return
 
     pt = pt.copy()
-    pt["date"] = _strip_tz(pt["date"])
+    pt["date"] = _to_day(pt["date"])
 
     # Vega expression to format seconds as M:SS on the y-axis labels
     pace_label_expr = (
@@ -132,7 +135,7 @@ def _chart_pace(df: pd.DataFrame):
 
 def _chart_spm(df: pd.DataFrame):
     spm_df = df.sort_values("date")[["date", "spm", "label"]].dropna().copy()
-    spm_df["date"] = _strip_tz(spm_df["date"])
+    spm_df["date"] = _to_day(spm_df["date"])
     spm_df["avg7"] = spm_df["spm"].rolling(7, min_periods=1).mean()
 
     base = alt.Chart(spm_df).encode(
@@ -167,7 +170,7 @@ def _chart_hr(df: pd.DataFrame):
         st.info("No heart rate data available.")
         return
 
-    hr_df["date"] = _strip_tz(hr_df["date"])
+    hr_df["date"] = _to_day(hr_df["date"])
     hr_df["avg7"] = hr_df["hr_avg"].rolling(7, min_periods=1).mean()
 
     base = alt.Chart(hr_df).encode(
