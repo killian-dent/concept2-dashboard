@@ -206,20 +206,22 @@ def load_results_df(raw_results: tuple) -> pd.DataFrame:
         pace_s = w.get("pace") or pace_from_time_distance(time_s, dist)
         watts = w.get("watts_average") or watts_from_pace(pace_s)
         rows.append({
-            "id":            r["id"],
-            "date":          pd.to_datetime(r["date"]),
-            "label":         w.get("label", "Workout"),
-            "type":          w.get("type", "distance"),
-            "distance_m":    dist,
-            "time_s":        time_s,
-            "duration":      format_duration(time_s),
-            "pace_s":        pace_s,
-            "pace":          format_pace(pace_s),
-            "spm":           w.get("spm", 0),
-            "hr_avg":        w.get("heart_rate_average", 0),
-            "watts":         round(watts, 1),
-            "calories":      w.get("calories", 0),
-            "splits":        w.get("splits", []),
+            "id":               r["id"],
+            "date":             pd.to_datetime(r["date"]),
+            "label":            w.get("label", "Workout"),
+            "type":             w.get("type", "distance"),
+            "distance_m":       dist,
+            "time_s":           time_s,
+            "duration":         format_duration(time_s),
+            "rest_distance_m":  w.get("rest_distance", 0) or 0,
+            "rest_time_s":      w.get("rest_time_seconds", 0) or 0,
+            "pace_s":           pace_s,
+            "pace":             format_pace(pace_s),
+            "spm":              w.get("spm", 0),
+            "hr_avg":           w.get("heart_rate_average", 0),
+            "watts":            round(watts, 1),
+            "calories":         w.get("calories", 0),
+            "splits":           w.get("splits", []),
         })
     df = pd.DataFrame(rows)
     if df.empty:

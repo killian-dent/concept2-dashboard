@@ -126,6 +126,9 @@ def _normalize(r: dict) -> dict:
 
     hr = r.get("heart_rate") or {}
 
+    rest_dist  = r.get("rest_distance", 0) or 0
+    rest_time_s = (r.get("rest_time", 0) or 0) / 10.0
+
     return {
         "id":           r["id"],
         "date":         r.get("date_utc") or r.get("date", ""),
@@ -137,6 +140,8 @@ def _normalize(r: dict) -> dict:
             "distance":           dist,
             "time":               time_tenths,
             "time_seconds":       time_s,
+            "rest_distance":      rest_dist,
+            "rest_time_seconds":  rest_time_s,
             "spm":                r.get("stroke_rate", 0),
             "heart_rate_average": hr.get("average", 0),
             "watts_average":      round(watts_from_pace(pace_s), 1) if pace_s else 0,

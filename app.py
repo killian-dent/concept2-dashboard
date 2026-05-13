@@ -209,17 +209,46 @@ else:
 
             st.markdown("---")
 
+            w = row["splits"][0] if row["splits"] else {}
+            rest_dist = row.get("rest_distance_m", 0) or 0
+            rest_time_s = row.get("rest_time_s", 0) or 0
+            has_rest = rest_dist > 0 or rest_time_s > 0
+
             h1, h2, h3, h4, h5 = st.columns(5)
-            h1.metric("Date",     row["date"].strftime("%Y-%m-%d"))
-            h2.metric("Workout",  row["label"])
-            h3.metric("Distance", f"{int(row['distance_m']):,} m")
-            h4.metric("Time",     row["duration"])
+            h1.metric("Date",    row["date"].strftime("%Y-%m-%d"))
+            h2.metric("Workout", row["label"])
+            if has_rest:
+                h3.metric(
+                    "Work Distance",
+                    f"{int(row['distance_m']):,} m",
+                    delta=f"+{int(rest_dist):,} m rest",
+                    delta_color="off",
+                )
+                h4.metric(
+                    "Work Time",
+                    row["duration"],
+                    delta=f"+{format_duration(rest_time_s)} rest",
+                    delta_color="off",
+                )
+            else:
+                h3.metric("Distance", f"{int(row['distance_m']):,} m")
+                h4.metric("Time",     row["duration"])
             h5.metric("Avg Pace", row["pace"])
 
             r1, r2, r3 = st.columns(3)
             r1.metric("Avg SPM",   row["spm"])
             r2.metric("Avg Watts", f"{row['watts']:.0f} W")
             r3.metric("Calories",  f"{int(row['calories'])} kcal")
+
+            if has_rest:
+                total_dist = int(row["distance_m"]) + int(rest_dist)
+                total_time = row["time_s"] + rest_time_s
+                st.caption(
+                    f"ℹ️ Total session: **{total_dist:,} m** over **{format_duration(total_time)}** "
+                    f"(work + rest). Concept2's help pages don't explicitly clarify whether "
+                    f"rest distance counts toward challenge and annual totals — the work figures "
+                    f"above are what's shown on rankings and honorboards."
+                )
 
             if splits:
                 splits_df = pd.DataFrame(splits)
