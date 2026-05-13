@@ -102,9 +102,10 @@ def _section_label(text: str, trailing_link: str = None, tab_name: str = None):
                         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
               <div style="font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;
                           text-transform:uppercase;font-weight:600;">{text}</div>
-              <a onclick="{js};return false;" href="#"
-                 style="font-size:11px;color:{ui.ACCENT_SEL};text-decoration:none;
-                        cursor:pointer;">{trailing_link}</a>
+              <span onclick="{js}"
+                    style="font-size:11px;color:{ui.ACCENT_SEL};cursor:pointer;">
+                {trailing_link}
+              </span>
             </div>
             """,
             height=48,
