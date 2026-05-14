@@ -140,21 +140,18 @@ ui.render_header(
 
 
 # ── Tab router ────────────────────────────────────────────────────────────
-# IMPORTANT — st.tabs renders ALL bodies on every run. That's fine here:
-# all heavy work is behind @st.cache_data, and per-tab work is light. If
-# perf becomes an issue (e.g. you add an expensive view), swap st.tabs for
-# `tab = st.radio(...)` + if/elif blocks and only render the active one.
-tab_overview, tab_workouts, tab_trends, tab_records, tab_compare, tab_wod, tab_challenges = st.tabs(
-    ["Overview", "Workouts", "Trends", "Records", "Compare", "WOD", "Challenges"]
-)
+# Radio-based routing: only the active tab's code runs on each rerun.
+# st.tabs renders all bodies simultaneously which is too slow for large datasets.
+_TABS = ["Overview", "Workouts", "Trends", "Records", "Compare", "WOD", "Challenges"]
+tab = st.radio("", _TABS, horizontal=True, label_visibility="collapsed", key="active_tab")
 
-with tab_overview:    overview.render(df)
-with tab_workouts:    workouts.render(df)
-with tab_trends:      trends.render(df)
-with tab_records:     records.render(df)
-with tab_compare:     compare.render(df)
-with tab_wod:         wod.render(df)
-with tab_challenges:  challenges.render()
+if   tab == "Overview":    overview.render(df)
+elif tab == "Workouts":    workouts.render(df)
+elif tab == "Trends":      trends.render(df)
+elif tab == "Records":     records.render(df)
+elif tab == "Compare":     compare.render(df)
+elif tab == "WOD":         wod.render(df)
+elif tab == "Challenges":  challenges.render()
 
 
 st.caption(
