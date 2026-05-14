@@ -44,6 +44,21 @@ def _db() -> sqlite3.Connection:
     return conn
 
 
+def get_all_user_ids() -> list[str]:
+    """Return all user IDs with stored workouts, most recently synced first."""
+    conn = _db()
+    rows = conn.execute(
+        """
+        SELECT DISTINCT w.user_id
+        FROM workouts w
+        LEFT JOIN sync_log s ON w.user_id = s.user_id
+        ORDER BY s.last_synced DESC
+        """
+    ).fetchall()
+    conn.close()
+    return [r["user_id"] for r in rows]
+
+
 def count(user_id: str) -> int:
     conn = _db()
     row = conn.execute(

@@ -102,11 +102,14 @@ def _render_detail(row: pd.Series):
     c1.metric("Time", row["duration"])
     c2.metric("Avg /500m", row["pace"])
 
-    s1, s2, s3, s4 = st.columns(4)
-    s1.metric("Distance", f"{int(row['distance_m']):,} m")
-    s2.metric("Avg watts", f"{row['watts']:.0f} W")
-    s3.metric("Avg SPM", int(row["spm"]) if row["spm"] else "—")
-    s4.metric("Calories", f"{int(row['calories']):,}")
+    drag = int(row["drag_factor"]) if row.get("drag_factor") else None
+    cols = st.columns(5 if drag else 4)
+    cols[0].metric("Distance", f"{int(row['distance_m']):,} m")
+    cols[1].metric("Avg watts", f"{row['watts']:.0f} W")
+    cols[2].metric("Avg SPM", int(row["spm"]) if row["spm"] else "—")
+    cols[3].metric("Calories", f"{int(row['calories']):,}")
+    if drag:
+        cols[4].metric("Drag factor", drag)
 
     if has_rest:
         rest = int(row["rest_distance_m"])

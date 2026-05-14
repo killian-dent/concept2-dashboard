@@ -88,7 +88,8 @@ def inject_styles():
 
 # ── Header with user-ID popover ──────────────────────────────────────────
 
-def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool):
+def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool,
+                  known_users: list = None):
     """
     Page header: brand on the left, sync status + user popover on the right.
     Replaces the old sidebar entirely.
@@ -104,17 +105,34 @@ def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool):
             unsafe_allow_html=True,
         )
     with cR:
-        # The popover button label includes the active user so you can tell
-        # at a glance who you're viewing.
         with st.popover(f"👤  {user_id}", use_container_width=True):
             st.caption("Track a Concept2 user")
-            new_id = st.text_input(
-                "User ID",
-                value=user_id,
-                label_visibility="collapsed",
-                placeholder='Concept2 ID or "me"',
-            )
-            if new_id and new_id != user_id:
+            new_id = None
+            if known_users:
+                _NEW = "＋ New user…"
+                options = known_users + [_NEW]
+                default = options.index(user_id) if user_id in options else 0
+                selected = st.selectbox(
+                    "Saved users", options, index=default,
+                    label_visibility="collapsed",
+                )
+                if selected == _NEW:
+                    typed = st.text_input(
+                        "User ID", placeholder='Concept2 ID or "me"',
+                        label_visibility="collapsed",
+                    )
+                    if typed:
+                        new_id = typed
+                elif selected != user_id:
+                    new_id = selected
+            else:
+                typed = st.text_input(
+                    "User ID", value=user_id, label_visibility="collapsed",
+                    placeholder='Concept2 ID or "me"',
+                )
+                if typed and typed != user_id:
+                    new_id = typed
+            if new_id:
                 on_change(new_id)
             st.caption('Numeric ID, or `"me"` for your own account.')
             st.divider()
