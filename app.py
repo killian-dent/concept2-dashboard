@@ -69,7 +69,8 @@ def _needs_sync(uid: str) -> bool:
 def _run_sync(uid: str) -> int:
     """Fetch new workouts incrementally and persist to DB. Returns count of new rows."""
     since_id = db.get_newest_id(uid)
-    new = api.fetch_results_incremental(uid, since_id=since_id)
+    fetch_fn = getattr(api, "fetch_results_incremental", None) or api.fetch_results
+    new = fetch_fn(uid, since_id=since_id) if since_id is not None else fetch_fn(uid)
     if new:
         db.upsert(uid, new)
     db.set_synced(uid)
@@ -80,7 +81,11 @@ def _run_sync(uid: str) -> int:
 def _load_raw(uid: str) -> tuple:
     if is_placeholder_token():
         return tuple(api.fetch_results())
-    return tuple(db.get_all(uid))
+    rows = db.get_all(uid)
+    if not rows:
+        # DB empty (sync failed or first-run fallback) — fetch directly
+        rows = api.fetch_results(uid)
+    return tuple(rows)
 
 
 def _set_user(new_id: str):
@@ -107,11 +112,14 @@ _force = st.session_state.pop("_force_sync", False)
 
 if not is_placeholder_token():
     if _force or not st.session_state.get(_synced_key):
-        if _force or _needs_sync(user_id):
-            _msg = "Loading workouts…" if db.count(user_id) == 0 else "Checking for new workouts…"
-            with st.spinner(_msg):
-                _run_sync(user_id)
-            st.cache_data.clear()
+        try:
+            if _force or _needs_sync(user_id):
+                _msg = "Loading workouts…" if db.count(user_id) == 0 else "Checking for new workouts…"
+                with st.spinner(_msg):
+                    _run_sync(user_id)
+                st.cache_data.clear()
+        except Exception as _e:
+            st.warning(f"Sync failed ({_e}); showing cached data.")
     st.session_state[_synced_key] = True
 
 try:
