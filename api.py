@@ -330,7 +330,7 @@ def fetch_ranking(
     return None
 
 
-def _extract_wod_row(html: str, search_token: str, base_url: str) -> Optional[dict]:
+def _extract_wod_row(html: str, search_token: str, base_url: str, page: int) -> Optional[dict]:
     """Parse rank and result cells from a WOD honorboard page that contains the user."""
     idx = html.find(search_token)
     if idx < 0:
@@ -356,24 +356,30 @@ def _extract_wod_row(html: str, search_token: str, base_url: str) -> Optional[di
         "result": cells_clean[-2] if len(cells_clean) >= 2 else "",
         "pace":   cells_clean[-1] if cells_clean else "",
         "url":    base_url,
+        "page":   page,
     }
 
 
-def fetch_wod_ranking(date: str, machine: str = "rowerg") -> Optional[dict]:
+def fetch_wod_ranking(date: str, machine: str = "rowerg", hint_page: int = None) -> Optional[dict]:
     """
     Scrape the Concept2 WOD honorboard for a given date and find the user's position.
 
-    date:    YYYY-MM-DD
-    machine: rowerg | skierg | bikeerg
+    date:      YYYY-MM-DD
+    machine:   rowerg | skierg | bikeerg
+    hint_page: if provided, try this page and its immediate neighbours first
+               (sequential, cheap) before falling back to the full scan.
+               Speeds up repeat lookups for dates whose honorboard has barely
+               changed since the last fetch.
 
     WOD boards use /profile/{user_id} links (unlike standard rankings which use
     /individual/{user_id}), so this is a separate scraper.
 
     Fetches page 1 sequentially to discover the total page count, then scans
-    all remaining pages in parallel (8 workers) and returns as soon as the user
+    all remaining pages in parallel (4 workers) and returns as soon as the user
     is found — typically 3-5x faster than sequential for large boards.
 
-    Returns {"rank": int, "result": str, "pace": str, "total": int, "url": str}
+    Returns {"rank": int, "result": str, "pace": str, "total": int, "url": str,
+             "page": int}
     or None if not found.
     """
     user_id = getattr(config, "USER_ID", None)
@@ -383,45 +389,74 @@ def fetch_wod_ranking(date: str, machine: str = "rowerg") -> Optional[dict]:
     search_token = f"/profile/{user_id}"
     base_url = f"https://log.concept2.com/wod/{date}/{machine}"
 
-    # Page 1: check for user and discover total page count
-    try:
-        resp = requests.get(base_url, params={"page": 1}, timeout=10)
-        if resp.status_code != 200:
-            return None
-    except Exception:
-        return None
-
-    html = resp.text
-    if search_token in html:
-        return _extract_wod_row(html, search_token, base_url)
-
-    page_nums = [int(p) for p in re.findall(r'page=(\d+)', html)]
-    total_pages = max(page_nums) if page_nums else 1
-    if total_pages <= 1:
-        return None
-
-    # Scan remaining pages in parallel. as_completed lets us return the moment
-    # the user's page finishes — we don't wait for the other in-flight requests.
-    stop = threading.Event()
-
-    def check_page(page: int) -> Optional[str]:
-        if stop.is_set():
-            return None
+    def _get_page(page: int) -> Optional[str]:
+        """Fetch one honorboard page; return its html, or None on any failure."""
         try:
             r = requests.get(base_url, params={"page": page}, timeout=10)
-            if r.status_code == 200 and search_token in r.text:
+            if r.status_code == 200:
                 return r.text
         except Exception:
             pass
         return None
 
+    def _total_pages(html: str) -> int:
+        nums = [int(p) for p in re.findall(r'page=(\d+)', html)]
+        return max(nums) if nums else 1
+
+    checked: set = set()
+    total_pages: Optional[int] = None
+
+    # 1. Try the hint page and its immediate neighbours first (sequential, cheap).
+    if hint_page and hint_page >= 1:
+        for p in (hint_page, hint_page - 1, hint_page + 1):
+            if p < 1 or p in checked:
+                continue
+            checked.add(p)
+            html = _get_page(p)
+            if html is None:
+                continue
+            if total_pages is None:
+                total_pages = _total_pages(html)
+            if search_token in html:
+                return _extract_wod_row(html, search_token, base_url, p)
+            _time.sleep(0.15)
+
+    # 2. Page 1: check it (if not already) and make sure we know the page count.
+    if 1 not in checked:
+        checked.add(1)
+        html = _get_page(1)
+        if html is None:
+            return None
+        total_pages = _total_pages(html)
+        if search_token in html:
+            return _extract_wod_row(html, search_token, base_url, 1)
+
+    if total_pages is None or total_pages <= 1:
+        return None
+
+    # 3. Parallel-scan the remaining pages (4 workers), skipping already-checked.
+    stop = threading.Event()
+
+    def check_page(page: int) -> Optional[tuple]:
+        if stop.is_set():
+            return None
+        try:
+            r = requests.get(base_url, params={"page": page}, timeout=10)
+            if r.status_code == 200 and search_token in r.text:
+                return (page, r.text)
+        except Exception:
+            pass
+        return None
+
+    remaining = [p for p in range(2, total_pages + 1) if p not in checked]
     with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {pool.submit(check_page, p): p for p in range(2, total_pages + 1)}
+        futures = {pool.submit(check_page, p): p for p in remaining}
         for future in as_completed(futures):
-            html = future.result()
-            if html:
+            res = future.result()
+            if res:
                 stop.set()
-                return _extract_wod_row(html, search_token, base_url)
+                page, html = res
+                return _extract_wod_row(html, search_token, base_url, page)
 
     return None
 

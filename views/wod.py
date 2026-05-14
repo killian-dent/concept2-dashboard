@@ -67,7 +67,8 @@ def render(df: pd.DataFrame):
             if result is None:
                 if made_request:
                     _time.sleep(0.25)
-                result = api.fetch_wod_ranking(d, machine="rowerg")
+                hint = (db.cache_peek(cache_key) or {}).get("page")
+                result = api.fetch_wod_ranking(d, machine="rowerg", hint_page=hint)
                 made_request = True
                 if result:
                     db.cache_set(cache_key, result)
