@@ -27,6 +27,27 @@ from data import compute_prs, format_pace
 from data_extras import pr_sparkline_series
 
 
+def _get_gender() -> tuple[str, bool]:
+    """
+    Return (gender, ok) for the current user.
+
+    gender is "M" or "F" from the Concept2 profile; falls back to "M".
+    ok is True only when a valid gender was successfully retrieved.
+    The profile is fetched once per session and cached in st.session_state.
+    """
+    if "profile" not in st.session_state:
+        try:
+            st.session_state["profile"] = api.fetch_profile()
+        except Exception:
+            st.session_state["profile"] = {}
+
+    profile = st.session_state.get("profile", {})
+    raw = profile.get("gender", "")
+    if raw in ("M", "F"):
+        return raw, True
+    return "M", False
+
+
 def render(df: pd.DataFrame):
     if df.empty:
         st.info("No workout data available.")
@@ -42,7 +63,7 @@ def render(df: pd.DataFrame):
     }
 
     year = pd.Timestamp.now().year
-    gender = "M"  # TODO: pull from api.fetch_profile() once that's wired up
+    gender, gender_ok = _get_gender()
 
     _RANKINGS_TTL = 86400  # 24 hours
 
@@ -61,6 +82,10 @@ def render(df: pd.DataFrame):
         f"Lifetime records · {year} rankings shown where you've placed "
         "in the top 1,000."
     )
+    if not gender_ok:
+        st.caption(
+            "Rankings assume male — profile gender unavailable."
+        )
 
     # ── Distance events ──────────────────────────────────────────────────
     for _, pr in dist_prs.iterrows():

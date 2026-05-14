@@ -425,7 +425,7 @@ def fetch_profile() -> dict:
     """
     if is_placeholder_token():
         return {"id": 0, "username": "Sample Athlete", "first_name": "Sample",
-                "last_name": "Athlete", "email": ""}
+                "last_name": "Athlete", "email": "", "gender": "M"}
 
     # ── REAL API CALL ──────────────────────────────────────────────────────
     user_id = getattr(config, "USER_ID", None)
