@@ -48,10 +48,12 @@ def render(df: pd.DataFrame):
             st.rerun()
         return
 
-    # Take up to 14 most-recent unique workout dates for the search
+    # Take up to 14 most-recent unique workout dates from the past 30 days
+    cutoff = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     wod_dates = (
         df["date"].dt.strftime("%Y-%m-%d")
                   .drop_duplicates()
+                  .loc[lambda s: s >= cutoff]
                   .head(14)
                   .tolist()
     )
