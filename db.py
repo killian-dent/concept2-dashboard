@@ -34,6 +34,11 @@ def _init(conn: sqlite3.Connection):
             user_id     TEXT PRIMARY KEY,
             last_synced TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS cache (
+            key        TEXT PRIMARY KEY,
+            data       TEXT NOT NULL,
+            fetched_at TEXT NOT NULL
+        );
     """)
     conn.commit()
 
@@ -121,6 +126,35 @@ def set_synced(user_id: str):
     conn.execute(
         "INSERT OR REPLACE INTO sync_log (user_id, last_synced) VALUES (?, ?)",
         (user_id, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def cache_get(key: str, ttl_seconds: int) -> Optional[dict]:
+    """Return cached JSON data if present and within TTL, else None."""
+    conn = _db()
+    row = conn.execute(
+        "SELECT data, fetched_at FROM cache WHERE key = ?", (key,)
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    fetched = datetime.fromisoformat(row["fetched_at"])
+    if fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=timezone.utc)
+    age = (datetime.now(tz=timezone.utc) - fetched).total_seconds()
+    if age > ttl_seconds:
+        return None
+    return json.loads(row["data"])
+
+
+def cache_set(key: str, data: dict) -> None:
+    """Store JSON-serializable data in the persistent cache with a UTC timestamp."""
+    conn = _db()
+    conn.execute(
+        "INSERT OR REPLACE INTO cache (key, data, fetched_at) VALUES (?, ?, ?)",
+        (key, json.dumps(data), datetime.now(tz=timezone.utc).isoformat()),
     )
     conn.commit()
     conn.close()

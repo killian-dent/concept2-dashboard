@@ -21,6 +21,7 @@ import streamlit as st
 
 import api
 import config
+import db
 import ui
 from data import compute_prs, format_pace
 from data_extras import pr_sparkline_series
@@ -43,12 +44,18 @@ def render(df: pd.DataFrame):
     year = pd.Timestamp.now().year
     gender = "M"  # TODO: pull from api.fetch_profile() once that's wired up
 
-    @st.cache_data(show_spinner="Looking up rankings…", ttl=86400)
-    def _fetch(distances: tuple, year: int, gender: str) -> dict:
-        return {n: api.fetch_ranking(d, year, gender) for n, d in distances}
+    _RANKINGS_TTL = 86400  # 24 hours
 
-    rankings = (_fetch(tuple(distances_with_pr.items()), year, gender)
-                if distances_with_pr else {})
+    rankings = {}
+    for name, dist in distances_with_pr.items():
+        cache_key = f"ranking:{year}:{gender}:{name}"
+        result = db.cache_get(cache_key, ttl_seconds=_RANKINGS_TTL)
+        if result is None:
+            with st.spinner(f"Looking up {name} ranking…"):
+                result = api.fetch_ranking(dist, year, gender) or {}
+            db.cache_set(cache_key, result)
+        if result:
+            rankings[name] = result
 
     st.caption(
         f"Lifetime records · {year} rankings shown where you've placed "

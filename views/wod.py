@@ -17,6 +17,7 @@ import pandas as pd
 import streamlit as st
 
 import api
+import db
 import ui
 from data_extras import wod_summary, wod_percentile
 
@@ -55,18 +56,25 @@ def render(df: pd.DataFrame):
                   .tolist()
     )
 
-    @st.cache_data(show_spinner="Searching WOD honorboards…", ttl=86400)
-    def _fetch(dates: tuple) -> list:
+    def _fetch(dates: list) -> list:
         out = []
-        for i, d in enumerate(dates):
-            r = api.fetch_wod_ranking(d, machine="rowerg")
-            if r:
-                out.append({"date": d, **r})
-            if i < len(dates) - 1:
-                _time.sleep(0.25)
+        made_request = False
+        for d in dates:
+            cache_key = f"wod:{d}"
+            result = db.cache_get(cache_key, ttl_seconds=86400)
+            if result is None:
+                if made_request:
+                    _time.sleep(0.25)
+                result = api.fetch_wod_ranking(d, machine="rowerg")
+                made_request = True
+                if result:
+                    db.cache_set(cache_key, result)
+            if result:
+                out.append({"date": d, **result})
         return out
 
-    rows = _fetch(tuple(wod_dates))
+    with st.spinner("Searching WOD honorboards…"):
+        rows = _fetch(wod_dates)
 
     if not rows:
         st.caption("No WOD honorboard appearances found in your recent workouts.")
