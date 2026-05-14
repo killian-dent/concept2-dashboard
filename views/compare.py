@@ -28,6 +28,12 @@ def render(df: pd.DataFrame):
         "and see exactly where the difference came from."
     )
 
+    # ── Only workouts with split data ─────────────────────────────────────
+    df = df[df["splits"].apply(bool)].copy()
+    if df.empty:
+        st.info("No workouts with split data found.")
+        return
+
     # ── Event picker — only show events with ≥2 attempts ─────────────────
     counts = df["label"].value_counts()
     eligible = counts[counts >= 2].index.tolist()
