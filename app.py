@@ -145,17 +145,17 @@ ui.render_header(
 
 
 # ── Tab router ────────────────────────────────────────────────────────────
-tab_overview, tab_workouts, tab_trends, tab_records, tab_compare, tab_wod, tab_challenges = st.tabs(
-    ["Overview", "Workouts", "Trends", "Records", "Compare", "WOD", "Challenges"]
+tab_overview, tab_workouts, tab_trends, tab_compare, tab_wod, tab_challenges, tab_records = st.tabs(
+    ["Overview", "Workouts", "Trends", "Compare", "WOD", "Challenges", "Records"]
 )
 
 with tab_overview:    overview.render(df)
 with tab_workouts:    workouts.render(df)
 with tab_trends:      trends.render(df)
-with tab_records:     records.render(df)
 with tab_compare:     compare.render(df)
 with tab_wod:         wod.render(df)
 with tab_challenges:  challenges.render()
+with tab_records:     records.render(df)
 
 
 st.caption(
