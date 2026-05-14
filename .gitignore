@@ -1,6 +1,9 @@
 # Secrets — never commit
 .streamlit/secrets.toml
 
+# Local SQLite workout cache
+data/
+
 # Python
 __pycache__/
 *.pyc

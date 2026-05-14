@@ -30,6 +30,25 @@ def render(df: pd.DataFrame):
         st.info("No data for trends yet.")
         return
 
+    _range_days = {"Last 3 months": 90, "Last 12 months": 365, "All time": None}
+    chosen = st.selectbox(
+        "Time range", list(_range_days.keys()),
+        index=1,
+        key="trends_time_range",
+        label_visibility="collapsed",
+    )
+    days = _range_days[chosen]
+    if days is not None:
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=days)
+        _dates = (df["date"].dt.tz_convert("UTC")
+                  if df["date"].dt.tz is not None
+                  else df["date"].dt.tz_localize("UTC"))
+        df = df[_dates >= cutoff].copy()
+
+    if df.empty:
+        st.info("No workouts in this time range.")
+        return
+
     t_w, t_p, t_s, t_h = st.tabs(["Meters / Week", "Pace", "SPM", "Heart rate"])
 
     with t_w:

@@ -88,7 +88,7 @@ def inject_styles():
 
 # ── Header with user-ID popover ──────────────────────────────────────────
 
-def render_header(user_id: str, on_change, is_placeholder: bool):
+def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool):
     """
     Page header: brand on the left, sync status + user popover on the right.
     Replaces the old sidebar entirely.
@@ -119,9 +119,8 @@ def render_header(user_id: str, on_change, is_placeholder: bool):
             st.caption('Numeric ID, or `"me"` for your own account.')
             st.divider()
             if st.button("🔄  Refresh data", use_container_width=True,
-                         help="Clear the 6-hour cache and reload"):
-                st.cache_data.clear()
-                st.rerun()
+                         help="Check Concept2 for new workouts now"):
+                on_refresh()
 
 
 # ── KPI cell + grid ──────────────────────────────────────────────────────

@@ -68,6 +68,31 @@ def _paginate(endpoint: str, extra_params: Optional[dict] = None) -> list[dict]:
     return results
 
 
+def _paginate_incremental(endpoint: str, since_id: int, extra_params: Optional[dict] = None) -> list[dict]:
+    """Fetch pages newest-first, stopping as soon as a result id <= since_id is seen."""
+    params = {"number": RESULTS_PER_PAGE, **(extra_params or {})}
+    results = []
+    page = 1
+    while True:
+        params["page"] = page
+        body = _get(endpoint, params)
+        data = body.get("data", [])
+        done = False
+        for r in data:
+            if r.get("id", 0) <= since_id:
+                done = True
+                break
+            results.append(r)
+        if done:
+            break
+        pagination = body.get("meta", {}).get("pagination", {})
+        if page >= pagination.get("total_pages", 1):
+            break
+        page += 1
+        _time.sleep(0.1)
+    return results
+
+
 # ---------------------------------------------------------------------------
 # Result normalisation
 # ---------------------------------------------------------------------------
@@ -175,6 +200,26 @@ def fetch_results(user_id: Optional[str] = None) -> list[dict]:
         user_id = str(configured) if configured else "me"
 
     raw = _paginate(f"users/{user_id}/results")
+    return [_normalize(r) for r in raw]
+
+
+def fetch_results_incremental(user_id: Optional[str] = None, since_id: Optional[int] = None) -> list[dict]:
+    """
+    Return only workouts newer than since_id (by Concept2 result ID).
+    Concept2 returns results newest-first, so we stop paginating as soon as we
+    see an ID we already have. Falls back to a full fetch when since_id is None.
+    """
+    if is_placeholder_token():
+        return generate_sample_results()
+
+    if user_id is None:
+        configured = getattr(config, "USER_ID", None)
+        user_id = str(configured) if configured else "me"
+
+    if since_id is None:
+        raw = _paginate(f"users/{user_id}/results")
+    else:
+        raw = _paginate_incremental(f"users/{user_id}/results", since_id)
     return [_normalize(r) for r in raw]
 
 
@@ -347,7 +392,7 @@ def fetch_wod_ranking(date: str, machine: str = "rowerg") -> Optional[dict]:
             pass
         return None
 
-    with ThreadPoolExecutor(max_workers=16) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(check_page, p): p for p in range(2, total_pages + 1)}
         for future in as_completed(futures):
             html = future.result()

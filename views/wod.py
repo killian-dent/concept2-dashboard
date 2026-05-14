@@ -11,6 +11,8 @@ estate AND changes the central metric:
 
 Data flow is unchanged — api.fetch_wod_ranking, 24h cache, gated load.
 """
+import time as _time
+
 import pandas as pd
 import streamlit as st
 
@@ -56,10 +58,12 @@ def render(df: pd.DataFrame):
     @st.cache_data(show_spinner="Searching WOD honorboards…", ttl=86400)
     def _fetch(dates: tuple) -> list:
         out = []
-        for d in dates:
+        for i, d in enumerate(dates):
             r = api.fetch_wod_ranking(d, machine="rowerg")
             if r:
                 out.append({"date": d, **r})
+            if i < len(dates) - 1:
+                _time.sleep(0.25)
         return out
 
     rows = _fetch(tuple(wod_dates))
