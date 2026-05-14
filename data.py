@@ -192,7 +192,6 @@ def generate_sample_results() -> list[dict]:
 # DataFrame construction & derived fields
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
 def load_results_df(raw_results: tuple) -> pd.DataFrame:
     """
     Convert raw API result list to a clean DataFrame with derived columns.

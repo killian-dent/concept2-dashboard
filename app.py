@@ -78,14 +78,15 @@ def _run_sync(uid: str) -> int:
 
 
 @st.cache_data(ttl=300)
-def _load_raw(uid: str) -> tuple:
+def _load_df(uid: str) -> pd.DataFrame:
+    """Load and build the DataFrame, cached by uid string (fast hash)."""
     if is_placeholder_token():
-        return tuple(api.fetch_results())
-    rows = db.get_all(uid)
-    if not rows:
-        # DB empty (sync failed or first-run fallback) — fetch directly
-        rows = api.fetch_results(uid)
-    return tuple(rows)
+        raw = api.fetch_results()
+    else:
+        raw = db.get_all(uid)
+        if not raw:
+            raw = api.fetch_results(uid)
+    return load_results_df(tuple(raw))
 
 
 def _set_user(new_id: str):
@@ -123,12 +124,10 @@ if not is_placeholder_token():
     st.session_state[_synced_key] = True
 
 try:
-    raw = _load_raw(user_id)
+    df = _load_df(user_id)
 except RuntimeError as e:
     st.error(str(e))
     st.stop()
-
-df = load_results_df(raw)
 
 
 # ── Header ────────────────────────────────────────────────────────────────
