@@ -1,6 +1,9 @@
 # Secrets — never commit
 .streamlit/secrets.toml
 
+# Local-only planning doc — never commit
+ENHANCEMENTS.md
+
 # Local SQLite workout cache
 data/
 
