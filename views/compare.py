@@ -65,14 +65,6 @@ def render(df: pd.DataFrame):
         st.warning("Pick two different workouts to compare.")
         return
 
-    if st.button("Compare", type="primary"):
-        st.session_state["compare_ready"] = (event, idx_a, idx_b)
-
-    ready = st.session_state.get("compare_ready")
-    if not ready or ready != (event, idx_a, idx_b):
-        st.caption("Select two workouts and click Compare.")
-        return
-
     a, b = sub.iloc[idx_a], sub.iloc[idx_b]
 
     _render_deltas(a, b)
