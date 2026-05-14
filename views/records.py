@@ -72,8 +72,9 @@ def render(df: pd.DataFrame):
         cache_key = f"ranking:{year}:{gender}:{name}"
         result = db.cache_get(cache_key, ttl_seconds=_RANKINGS_TTL)
         if result is None:
+            hint = (db.cache_peek(cache_key) or {}).get("page")
             with st.spinner(f"Looking up {name} ranking…"):
-                result = api.fetch_ranking(dist, year, gender) or {}
+                result = api.fetch_ranking(dist, year, gender, hint_page=hint) or {}
             db.cache_set(cache_key, result)
         if result:
             rankings[name] = result

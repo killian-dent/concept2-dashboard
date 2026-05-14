@@ -149,6 +149,16 @@ def cache_get(key: str, ttl_seconds: int) -> Optional[dict]:
     return json.loads(row["data"])
 
 
+def cache_peek(key: str) -> Optional[dict]:
+    """Return cached JSON data regardless of age, or None if the key is absent."""
+    conn = _db()
+    row = conn.execute("SELECT data FROM cache WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return json.loads(row["data"])
+
+
 def cache_set(key: str, data: dict) -> None:
     """Store JSON-serializable data in the persistent cache with a UTC timestamp."""
     conn = _db()

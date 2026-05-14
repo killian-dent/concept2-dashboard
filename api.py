@@ -250,15 +250,20 @@ def fetch_ranking(
     gender: str = "M",
     machine: str = "rower",
     max_pages: int = 20,
+    hint_page: int = None,
 ) -> Optional[dict]:
     """
     Scrape the Concept2 rankings page to find this user's position.
 
     Searches up to max_pages (50 results each = top 1000 by default).
-    Returns {"rank": int, "time": str} or None if not found.
+    Returns {"rank": int, "time": str, "page": int, "rankings_url": str} or None.
 
     Identifies the user by their numeric USER_ID appearing in the row link
     as /individual/{USER_ID}, so it's robust against name changes.
+
+    hint_page: if provided, the search starts near that page (and its
+    neighbours) before falling back to a full sequential scan. When None
+    the behaviour is identical to the original sequential scan.
     """
     user_id = getattr(config, "USER_ID", None)
     if not user_id:
@@ -267,7 +272,19 @@ def fetch_ranking(
     search_token = f"/individual/{user_id}"
     base_url = f"https://log.concept2.com/rankings/{year}/{machine}/{distance}"
 
-    for page in range(1, max_pages + 1):
+    if hint_page:
+        sequential = False
+        pages_to_try = []
+        for offset in (0, -1, 1, -2, 2):
+            p = hint_page + offset
+            if 1 <= p <= max_pages and p not in pages_to_try:
+                pages_to_try.append(p)
+        pages_to_try += [p for p in range(1, max_pages + 1) if p not in pages_to_try]
+    else:
+        sequential = True
+        pages_to_try = list(range(1, max_pages + 1))
+
+    for page in pages_to_try:
         try:
             resp = requests.get(
                 base_url,
@@ -275,7 +292,10 @@ def fetch_ranking(
                 timeout=10,
             )
             if resp.status_code != 200:
-                break
+                if sequential:
+                    break
+                else:
+                    continue
             html = resp.text
 
             if search_token in html:
@@ -297,12 +317,15 @@ def fetch_ranking(
                     "rankings_url": f"{base_url}?gender={gender}&page={page}",
                 }
 
-            if f"page={page + 1}" not in html:
+            if sequential and f"page={page + 1}" not in html:
                 break
 
             _time.sleep(0.15)
         except Exception:
-            break
+            if sequential:
+                break
+            else:
+                continue
 
     return None
 
