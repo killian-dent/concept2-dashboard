@@ -236,7 +236,6 @@ def load_results_df(raw_results: tuple) -> pd.DataFrame:
 # Summary statistics
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
 def compute_summary(df: pd.DataFrame) -> dict:
     today = pd.Timestamp.now(tz="UTC").normalize()
     month_start = today.replace(day=1)
@@ -279,7 +278,6 @@ def compute_summary(df: pd.DataFrame) -> dict:
 # Personal Records
 # ---------------------------------------------------------------------------
 
-@st.cache_data(ttl=300)
 def compute_prs(df: pd.DataFrame) -> pd.DataFrame:
     from config import STANDARD_DISTANCES, STANDARD_TIMED
 

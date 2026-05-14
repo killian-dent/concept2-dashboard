@@ -13,12 +13,10 @@ Functions:
 """
 from datetime import timedelta
 import pandas as pd
-import streamlit as st
 
 
 # ── KPI deltas: this period vs previous equal-length period ──────────────
 
-@st.cache_data(ttl=300)
 def compute_period_kpis(df: pd.DataFrame, days: int = 30) -> dict:
     """
     Return KPIs for the trailing `days` window plus deltas vs the previous
