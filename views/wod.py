@@ -9,7 +9,8 @@ estate AND changes the central metric:
   • The new metric is PERCENTILE: "top 57%". Same data, instantly readable.
   • Every row renders a percentile pin on a track, with a 50% tick.
 
-Data flow is unchanged — api.fetch_wod_ranking, 24h cache, gated load.
+Cached honorboard results (24h, persisted in SQLite) render immediately;
+only dates not yet checked sit behind a load gate.
 """
 import time as _time
 
@@ -32,23 +33,7 @@ def render(df: pd.DataFrame):
         "Percentile is the metric — raw rank means nothing without field size."
     )
 
-    # ── Load gate ────────────────────────────────────────────────────────
-    # Same UX as the original: scanning the honorboard takes 15–20s, so it's
-    # behind a button. Cache lives 24h.
-    if "wod_loaded" not in st.session_state:
-        st.session_state.wod_loaded = False
-
-    if not st.session_state.wod_loaded:
-        st.info(
-            "Loading WOD rankings scans up to 40 pages of Concept2's site "
-            "(~15–20s). Results cached for 24 hours."
-        )
-        if st.button("Load WOD rankings", type="primary"):
-            st.session_state.wod_loaded = True
-            st.rerun()
-        return
-
-    # Take up to 14 most-recent unique workout dates from the past 30 days
+    # Up to 14 most-recent unique workout dates from the past 30 days
     cutoff = (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=30)).strftime("%Y-%m-%d")
     wod_dates = (
         df["date"].dt.strftime("%Y-%m-%d")
@@ -57,6 +42,20 @@ def render(df: pd.DataFrame):
                   .head(14)
                   .tolist()
     )
+    if not wod_dates:
+        st.caption("No workouts in the past 30 days to check against WOD honorboards.")
+        return
+
+    # Split into already-cached results and dates still needing a lookup.
+    # A cached {} means "checked, not on that day's board" — skip it silently.
+    rows = []
+    uncached_dates = []
+    for d in wod_dates:
+        cached = db.cache_get(f"wod:{d}", ttl_seconds=86400)
+        if cached is None:
+            uncached_dates.append(d)
+        elif cached:
+            rows.append({"date": d, **cached})
 
     def _fetch(dates: list) -> list:
         out = []
@@ -68,20 +67,36 @@ def render(df: pd.DataFrame):
                 if made_request:
                     _time.sleep(0.25)
                 hint = (db.cache_peek(cache_key) or {}).get("page")
-                result = api.fetch_wod_ranking(d, machine="rowerg", hint_page=hint)
+                result = api.fetch_wod_ranking(d, machine="rowerg", hint_page=hint) or {}
                 made_request = True
-                if result:
-                    db.cache_set(cache_key, result)
+                db.cache_set(cache_key, result)
             if result:
                 out.append({"date": d, **result})
         return out
 
-    with st.spinner("Searching WOD honorboards…"):
-        rows = _fetch(wod_dates)
+    # Cached results render immediately (like the Records tab). Only dates
+    # not yet checked sit behind a gate — a cold honorboard scan is slow and
+    # we don't want to hammer Concept2's site on every fresh session.
+    show_gate = bool(uncached_dates) and not st.session_state.get("wod_loaded", False)
+    if show_gate:
+        st.info(
+            f"{len(uncached_dates)} recent date(s) haven't been checked yet. "
+            "Scanning Concept2's honorboards takes a few seconds each; results "
+            "are then cached for 24 hours."
+        )
+        if st.button("Check WOD honorboards", type="primary"):
+            st.session_state.wod_loaded = True
+            st.rerun()
+    elif uncached_dates:
+        with st.spinner("Searching WOD honorboards…"):
+            rows.extend(_fetch(uncached_dates))
 
     if not rows:
-        st.caption("No WOD honorboard appearances found in your recent workouts.")
+        if not show_gate:
+            st.caption("No WOD honorboard appearances found in your recent workouts.")
         return
+
+    rows.sort(key=lambda r: r["date"], reverse=True)
 
     # ── Stats strip (3 KPIs across the top) ──────────────────────────────
     summary = wod_summary(rows)
