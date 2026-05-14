@@ -131,7 +131,10 @@ except RuntimeError as e:
 
 
 # ── Header ────────────────────────────────────────────────────────────────
-_known_users = db.get_all_user_ids() if not is_placeholder_token() else []
+try:
+    _known_users = db.get_all_user_ids() if not is_placeholder_token() else []
+except Exception:
+    _known_users = []
 ui.render_header(
     user_id=user_id,
     on_change=_set_user,
