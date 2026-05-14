@@ -43,7 +43,7 @@ def render(df: pd.DataFrame):
     year = pd.Timestamp.now().year
     gender = "M"  # TODO: pull from api.fetch_profile() once that's wired up
 
-    @st.cache_data(show_spinner="Looking up rankings…", ttl=21600)
+    @st.cache_data(show_spinner="Looking up rankings…", ttl=86400)
     def _fetch(distances: tuple, year: int, gender: str) -> dict:
         return {n: api.fetch_ranking(d, year, gender) for n, d in distances}
 

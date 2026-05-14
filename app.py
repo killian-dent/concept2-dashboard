@@ -159,6 +159,6 @@ with tab_challenges:  challenges.render()
 
 
 st.caption(
-    "Data synced incrementally · WOD rankings cached 24 hours · "
+    "Data synced incrementally · Rankings and WOD cached 24 hours · "
     "Built with Streamlit + Altair"
 )
