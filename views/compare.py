@@ -18,6 +18,12 @@ import streamlit as st
 import ui
 
 
+@st.cache_data
+def _eligible_events(df: pd.DataFrame) -> list[str]:
+    counts = df["label"].value_counts()
+    return counts[counts >= 2].index.tolist()
+
+
 def render(df: pd.DataFrame):
     if df.empty:
         st.info("No workouts to compare.")
@@ -29,8 +35,7 @@ def render(df: pd.DataFrame):
     )
 
     # ── Event picker — only show events with ≥2 attempts ─────────────────
-    event_counts = df["label"].value_counts()
-    eligible = event_counts[event_counts >= 2].index.tolist()
+    eligible = _eligible_events(df)
     if not eligible:
         st.info("Need at least two workouts of the same type to compare.")
         return
@@ -38,6 +43,7 @@ def render(df: pd.DataFrame):
     event = st.selectbox("Event", eligible, index=0)
     sub = (df[df["label"] == event]
               .sort_values("date", ascending=False)
+              .head(50)                      # cap to keep selectboxes fast
               .reset_index(drop=True))
 
     # Two pickers, side by side. Default to most-recent and previous.
