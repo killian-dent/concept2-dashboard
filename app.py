@@ -78,7 +78,7 @@ def _run_sync(uid: str) -> int:
 
 
 @st.cache_data(ttl=300)
-def _load_df(uid: str) -> pd.DataFrame:
+def _load_df(uid: str):
     """Load and build the DataFrame, cached by uid string (fast hash)."""
     if is_placeholder_token():
         raw = api.fetch_results()
