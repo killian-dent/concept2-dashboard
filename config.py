@@ -18,7 +18,7 @@ USER_ID = int(_uid) if _uid.isdigit() else None
 API_BASE_URL = "https://log.concept2.com/api"
 API_VERSION = "v1"
 
-RESULTS_PER_PAGE = 100
+RESULTS_PER_PAGE = 250  # API max — fewer pages on the first full fetch
 
 # ── Heart-rate zones ───────────────────────────────────────────────────────
 # Zones are derived proportionally from MAX_HR (see rowing-plan-summary.md).

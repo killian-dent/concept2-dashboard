@@ -20,7 +20,7 @@ Data strategy:
   • The 6-hour throttle prevents re-checking within the same session
     window; "Refresh data" in the header bypasses it explicitly.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import streamlit as st
 
@@ -54,7 +54,9 @@ if "selected_workout_id" not in st.session_state:
 
 
 # ── Sync helpers ──────────────────────────────────────────────────────────
-_SYNC_INTERVAL_S = 6 * 3600
+# The incremental check is a single cheap call, so we can refresh hourly across
+# sessions (still gated once per session). "Refresh data" bypasses it.
+_SYNC_INTERVAL_S = 1 * 3600
 
 
 def _needs_sync(uid: str) -> bool:
@@ -67,17 +69,25 @@ def _needs_sync(uid: str) -> bool:
 
 
 def _run_sync(uid: str) -> int:
-    """Fetch new workouts incrementally and persist to DB. Returns count of new rows."""
-    since_id = db.get_newest_id(uid)
-    fetch_fn = getattr(api, "fetch_results_incremental", None) or api.fetch_results
-    new = fetch_fn(uid, since_id=since_id) if since_id is not None else fetch_fn(uid)
+    """Fetch new/edited workouts and persist to DB. Returns count of upserted rows.
+
+    Uses updated_after (date of the last sync, padded back 2 days) so edits to
+    older workouts are caught too — not just brand-new ones. Falls back to a
+    full fetch the first time a user is seen.
+    """
+    last = db.last_synced(uid)
+    if db.count(uid) > 0 and last is not None:
+        updated_after = (last - timedelta(days=2)).strftime("%Y-%m-%d")
+        new = api.fetch_results_incremental(uid, updated_after=updated_after)
+    else:
+        new = api.fetch_results(uid)
     if new:
         db.upsert(uid, new)
     db.set_synced(uid)
     return len(new)
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=1800)
 def _load_df(uid: str):
     """Load and build the DataFrame, cached by uid string (fast hash)."""
     if is_placeholder_token():

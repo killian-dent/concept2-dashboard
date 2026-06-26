@@ -16,6 +16,8 @@ one") instead of "—".
 The WOD honorboard which lived in section 4 has moved to its own tab
 (views/wod.py).
 """
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import pandas as pd
 import streamlit as st
 
@@ -68,16 +70,35 @@ def render(df: pd.DataFrame):
     _RANKINGS_TTL = 86400  # 24 hours
 
     rankings = {}
+    uncached = {}  # name -> (dist, cache_key, hint_page)
     for name, dist in distances_with_pr.items():
         cache_key = f"ranking:{year}:{gender}:{name}"
         result = db.cache_get(cache_key, ttl_seconds=_RANKINGS_TTL)
         if result is None:
             hint = (db.cache_peek(cache_key) or {}).get("page")
-            with st.spinner(f"Looking up {name} ranking…"):
-                result = api.fetch_ranking(dist, year, gender, hint_page=hint) or {}
-            db.cache_set(cache_key, result)
-        if result:
+            uncached[name] = (dist, cache_key, hint)
+        elif result:
             rankings[name] = result
+
+    # Fetch the cache-misses in parallel (capped app-wide by api's semaphore);
+    # cache writes happen here on the main thread to avoid SQLite write races.
+    if uncached:
+        with st.spinner(f"Looking up {len(uncached)} ranking(s)…"):
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                futs = {
+                    ex.submit(api.fetch_ranking, dist, year, gender,
+                              hint_page=hint): (name, key)
+                    for name, (dist, key, hint) in uncached.items()
+                }
+                for fut in as_completed(futs):
+                    name, key = futs[fut]
+                    try:
+                        result = fut.result() or {}
+                    except Exception:
+                        result = {}
+                    db.cache_set(key, result)
+                    if result:
+                        rankings[name] = result
 
     st.caption(
         f"Lifetime records · {year} rankings shown where you've placed "

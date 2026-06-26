@@ -33,6 +33,17 @@ from data import generate_sample_results, pace_from_time_distance, watts_from_pa
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+# One shared connection pool (keep-alive) for every outbound request — removes
+# the TLS handshake from each call. The semaphore is the single app-wide cap on
+# concurrent requests against Concept2: views may parallelize lookups freely
+# above it, and total in-flight requests never exceed _MAX_CONCURRENCY. Tune
+# here if Concept2 ever shows strain. (~6 is under what one browser opens per
+# host, and 24h caching keeps total volume tiny.)
+_session = requests.Session()
+_MAX_CONCURRENCY = 6
+_request_slot = threading.Semaphore(_MAX_CONCURRENCY)
+
+
 def _headers() -> dict:
     return {
         "Authorization": f"Bearer {API_TOKEN}",
@@ -42,12 +53,31 @@ def _headers() -> dict:
 
 
 def _get(endpoint: str, params: Optional[dict] = None) -> dict:
-    """Single authenticated GET. Raises on HTTP errors."""
+    """Single authenticated GET. Retries once on a transient (5xx/timeout/
+    connection) error, then raises."""
     # Correct URL: /api/{endpoint}  — no version prefix in path
     url = f"{API_BASE_URL}/{endpoint}"
-    resp = requests.get(url, headers=_headers(), params=params or {}, timeout=15)
-    resp.raise_for_status()
-    return resp.json()
+    for attempt in range(2):
+        try:
+            with _request_slot:
+                resp = _session.get(url, headers=_headers(),
+                                    params=params or {}, timeout=15)
+            resp.raise_for_status()
+            return resp.json()
+        except requests.RequestException as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            transient = status is None or status >= 500
+            if attempt == 0 and transient:
+                _time.sleep(0.5)
+                continue
+            raise
+
+
+def _rate_limited_get(url: str, **kwargs) -> requests.Response:
+    """Every site-scrape request goes through here so the shared semaphore caps
+    app-wide concurrency regardless of how many threads call in."""
+    with _request_slot:
+        return _session.get(url, **kwargs)
 
 
 def _paginate(endpoint: str, extra_params: Optional[dict] = None) -> list[dict]:
@@ -230,11 +260,24 @@ def fetch_results(user_id: Optional[str] = None) -> list[dict]:
     return [_normalize(r) for r in raw]
 
 
-def fetch_results_incremental(user_id: Optional[str] = None, since_id: Optional[int] = None) -> list[dict]:
+def fetch_results_incremental(
+    user_id: Optional[str] = None,
+    since_id: Optional[int] = None,
+    updated_after: Optional[str] = None,
+) -> list[dict]:
     """
-    Return only workouts newer than since_id (by Concept2 result ID).
-    Concept2 returns results newest-first, so we stop paginating as soon as we
-    see an ID we already have. Falls back to a full fetch when since_id is None.
+    Return workouts to upsert since the last sync.
+
+    Three modes, in priority order:
+      • updated_after="YYYY-MM-DD": ask the API for every result created OR
+        edited since that date and fetch all of them. This is the robust
+        default — it catches edits to older workouts, which the id-based mode
+        silently misses. The date filter keeps the page count tiny.
+      • since_id: paginate newest-first and stop at the first id we already
+        have (legacy fast path).
+      • neither: full fetch.
+
+    Falls back to sample data when the token is a placeholder.
     """
     if is_placeholder_token():
         return generate_sample_results()
@@ -243,10 +286,13 @@ def fetch_results_incremental(user_id: Optional[str] = None, since_id: Optional[
         configured = getattr(config, "USER_ID", None)
         user_id = str(configured) if configured else "me"
 
-    if since_id is None:
-        raw = _paginate(f"users/{user_id}/results")
+    endpoint = f"users/{user_id}/results"
+    if updated_after is not None:
+        raw = _paginate(endpoint, {"updated_after": updated_after})
+    elif since_id is None:
+        raw = _paginate(endpoint)
     else:
-        raw = _paginate_incremental(f"users/{user_id}/results", since_id)
+        raw = _paginate_incremental(endpoint, since_id)
     return [_normalize(r) for r in raw]
 
 
@@ -414,7 +460,7 @@ def fetch_ranking(
 
     for page in pages_to_try:
         try:
-            resp = requests.get(
+            resp = _rate_limited_get(
                 base_url,
                 params={"gender": gender, "page": page},
                 timeout=10,
@@ -520,7 +566,7 @@ def fetch_wod_ranking(date: str, machine: str = "rowerg", hint_page: int = None)
     def _get_page(page: int) -> Optional[str]:
         """Fetch one honorboard page; return its html, or None on any failure."""
         try:
-            r = requests.get(base_url, params={"page": page}, timeout=10)
+            r = _rate_limited_get(base_url, params={"page": page}, timeout=10)
             if r.status_code == 200:
                 return r.text
         except Exception:
@@ -569,7 +615,7 @@ def fetch_wod_ranking(date: str, machine: str = "rowerg", hint_page: int = None)
         if stop.is_set():
             return None
         try:
-            r = requests.get(base_url, params={"page": page}, timeout=10)
+            r = _rate_limited_get(base_url, params={"page": page}, timeout=10)
             if r.status_code == 200 and search_token in r.text:
                 return (page, r.text)
         except Exception:

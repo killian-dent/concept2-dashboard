@@ -12,7 +12,7 @@ estate AND changes the central metric:
 Cached honorboard results (24h, persisted in SQLite) render immediately;
 only dates not yet checked sit behind a load gate.
 """
-import time as _time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import streamlit as st
@@ -58,20 +58,35 @@ def render(df: pd.DataFrame):
             rows.append({"date": d, **cached})
 
     def _fetch(dates: list) -> list:
+        # Fetch uncached dates in parallel; the shared semaphore in api.py caps
+        # total in-flight requests, so this stays polite. Cache writes happen on
+        # this (main) thread to avoid SQLite write races.
         out = []
-        made_request = False
+        to_fetch = {}  # date -> (cache_key, hint_page)
         for d in dates:
             cache_key = f"wod:{d}"
             result = db.cache_get(cache_key, ttl_seconds=86400)
             if result is None:
-                if made_request:
-                    _time.sleep(0.25)
                 hint = (db.cache_peek(cache_key) or {}).get("page")
-                result = api.fetch_wod_ranking(d, machine="rowerg", hint_page=hint) or {}
-                made_request = True
-                db.cache_set(cache_key, result)
-            if result:
+                to_fetch[d] = (cache_key, hint)
+            elif result:
                 out.append({"date": d, **result})
+
+        if to_fetch:
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                futs = {
+                    ex.submit(api.fetch_wod_ranking, d, "rowerg", hint): (d, key)
+                    for d, (key, hint) in to_fetch.items()
+                }
+                for fut in as_completed(futs):
+                    d, key = futs[fut]
+                    try:
+                        result = fut.result() or {}
+                    except Exception:
+                        result = {}
+                    db.cache_set(key, result)
+                    if result:
+                        out.append({"date": d, **result})
         return out
 
     # Cached results render immediately (like the Records tab). Only dates
