@@ -51,23 +51,18 @@ def render(df: pd.DataFrame):
         for _, r in work.iterrows()
     }
     label = st.selectbox(
-        "Open workout",
-        options=["—"] + list(options.keys()),
-        label_visibility="collapsed",
+        "Open a workout for splits & heart-rate detail",
+        options=["— select a workout —"] + list(options.keys()),
+        help="Opens the detail panel below: splits chart, HR trace, "
+             "time-in-zone and decoupling.",
     )
-    if label != "—":
+    if not label.startswith("—"):
         st.session_state.selected_workout_id = options[label]
 
-    cnt, dl = st.columns([3, 1])
-    cnt.caption(f"{len(work)} workouts")
-    dl.download_button(
-        "⬇ Export all (CSV)",
-        _export_csv(df),
-        file_name="concept2_workouts.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
+    st.caption(f"{len(work)} workouts")
     _render_list(work)
+
+    _render_export(df, work)
 
     # ── Detail panel ─────────────────────────────────────────────────────
     sid = st.session_state.get("selected_workout_id")
@@ -76,13 +71,106 @@ def render(df: pd.DataFrame):
         _render_detail(df[df["id"] == sid].iloc[0])
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+# ── Export ───────────────────────────────────────────────────────────────
 
-def _export_csv(df: pd.DataFrame) -> bytes:
-    """Flatten the workouts DataFrame to CSV bytes (drops the nested splits)."""
+def _render_export(df: pd.DataFrame, work: pd.DataFrame):
+    """Export controls. Workouts + splits are instant (already in memory);
+    per-stroke detail + time-in-zone is opt-in because it fetches each shown
+    workout's stroke series (cached after the first time)."""
+    with st.expander("⬇  Export data"):
+        st.caption(
+            "Bundled as a ZIP. **Workouts** and **splits** are instant. "
+            "**Per-stroke detail** fetches the stroke series for each of the "
+            f"{len(work)} workouts shown above (cached after the first run)."
+        )
+        include_strokes = st.checkbox(
+            "Include per-stroke detail + time-in-zone", value=False,
+            help="One API call per shown workout the first time; cached after.",
+        )
+        if st.button("Build export", type="primary"):
+            uid = st.session_state.get("user_id", "me")
+            with st.spinner("Building export…"):
+                st.session_state["_export_zip"] = _build_zip(
+                    df, work, uid, include_strokes)
+        if st.session_state.get("_export_zip"):
+            st.download_button(
+                "Download ZIP", st.session_state["_export_zip"],
+                file_name="concept2_export.zip", mime="application/zip",
+                use_container_width=True,
+            )
+
+
+def _workouts_csv(df: pd.DataFrame) -> bytes:
+    """Workout-level summary, enriched (drops the nested splits column)."""
     cols = [c for c in df.columns if c != "splits"]
     return df[cols].to_csv(index=False).encode("utf-8")
 
+
+def _splits_csv(df: pd.DataFrame) -> bytes:
+    """One row per interval/split across all workouts."""
+    rows = []
+    for _, r in df.iterrows():
+        for s in (r["splits"] or []):
+            rows.append({
+                "workout_id":     r["id"],
+                "date":           r["date"].strftime("%Y-%m-%d"),
+                "split_number":   s.get("split_number", 0),
+                "distance_m":     s.get("distance", 0),
+                "time_s":         s.get("time", 0),
+                "pace_s_per_500": round(s.get("pace", 0), 2),
+                "pace":           s.get("pace_formatted", ""),
+                "spm":            s.get("spm", 0),
+                "watts":          s.get("watts", 0),
+                "heart_rate":     s.get("heart_rate", 0),
+            })
+    return pd.DataFrame(rows).to_csv(index=False).encode("utf-8")
+
+
+def _strokes_and_zones_csv(work: pd.DataFrame, uid) -> tuple:
+    """Per-stroke series + per-workout time-in-zone/decoupling for `work`.
+
+    Returns (strokes_csv_bytes, zones_csv_bytes). Fetches each workout's stroke
+    series via the cached get-or-fetch, so repeat exports hit only the DB.
+    """
+    s_rows, z_rows = [], []
+    for _, r in work.iterrows():
+        strokes = api.cached_strokes(uid, int(r["id"]))
+        for s in strokes:
+            s_rows.append({"workout_id": r["id"], **s})
+        tiz = time_in_zone_from_strokes(strokes)
+        dec = decoupling(strokes)
+        zone_cols = {f"z{i}_min": round(tiz.get(i, 0) / 60.0, 1)
+                     for i in range(1, 6)}
+        z_rows.append({
+            "workout_id":     r["id"],
+            "date":           r["date"].strftime("%Y-%m-%d"),
+            "label":          r["label"],
+            "hr_avg":         int(r["hr_avg"] or 0),
+            **zone_cols,
+            "decoupling_pct": round(dec["pct"], 1) if dec else "",
+        })
+    strokes_csv = pd.DataFrame(s_rows).to_csv(index=False).encode("utf-8")
+    zones_csv = pd.DataFrame(z_rows).to_csv(index=False).encode("utf-8")
+    return strokes_csv, zones_csv
+
+
+def _build_zip(df: pd.DataFrame, work: pd.DataFrame, uid,
+               include_strokes: bool) -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("workouts.csv", _workouts_csv(df))
+        z.writestr("splits.csv", _splits_csv(df))
+        if include_strokes:
+            strokes_csv, zones_csv = _strokes_and_zones_csv(work, uid)
+            z.writestr("strokes.csv", strokes_csv)
+            z.writestr("workout_zones.csv", zones_csv)
+    return buf.getvalue()
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────
 
 def _render_list(work: pd.DataFrame):
     rows = []
