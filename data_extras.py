@@ -188,6 +188,88 @@ def aerobic_efficiency_summary(eff: pd.DataFrame) -> dict:
     }
 
 
+def _utc(series: pd.Series) -> pd.Series:
+    """Coerce a datetime series to UTC (tz-aware), localising naive values."""
+    return (series.dt.tz_convert("UTC")
+            if series.dt.tz is not None else series.dt.tz_localize("UTC"))
+
+
+# ── Weekly HR-zone distribution (the 80/20 pyramid check) ─────────────────
+
+def weekly_zone_minutes(df: pd.DataFrame, days: int = 84) -> pd.DataFrame:
+    """Minutes per HR zone per ISO week (session-level, by each row's avg HR).
+
+    This is the practical default for the whole-history view: it classifies a
+    session by its average heart rate rather than fetching per-stroke data for
+    every workout. Sessions without HR (hr_zone 0) are dropped. Returns columns:
+    week, hr_zone, minutes.
+    """
+    if df.empty:
+        return df
+    now = pd.Timestamp.now(tz="UTC")
+    start = now - pd.Timedelta(days=days)
+    d = _utc(df["date"])
+    sub = df[(d >= start) & (df["hr_zone"] > 0)].copy()
+    if sub.empty:
+        return sub
+    sub["week"] = _utc(sub["date"]).dt.tz_localize(None).dt.to_period("W").dt.start_time
+    sub["minutes"] = sub["time_s"] / 60.0
+    return (sub.groupby(["week", "hr_zone"])["minutes"].sum()
+               .reset_index())
+
+
+def easy_ratio(zone_minutes: pd.DataFrame) -> float:
+    """Share of total minutes spent easy (Zones 1-2) across the given frame.
+
+    The plan targets ~80% — keeping two-thirds to four-fifths of weekly minutes
+    genuinely easy. Returns 0.0 when there's no data.
+    """
+    if zone_minutes is None or zone_minutes.empty:
+        return 0.0
+    total = zone_minutes["minutes"].sum()
+    if total <= 0:
+        return 0.0
+    easy = zone_minutes[zone_minutes["hr_zone"] <= 2]["minutes"].sum()
+    return float(easy / total)
+
+
+# ── Aerobic decoupling within a single session ────────────────────────────
+
+def decoupling(strokes: list) -> dict:
+    """Pace:HR drift between the first and second half of a steady piece.
+
+    Efficiency = speed / HR. If the aerobic system is holding up, efficiency
+    stays roughly constant; if HR drifts up (or pace fades) in the back half,
+    efficiency drops — that's cardiac drift. Returns
+    {pct, first_ef, second_ef} where a positive pct = efficiency dropped in the
+    second half. <5% is generally considered well-coupled / aerobically sound.
+    Returns {} when there isn't enough usable data.
+    """
+    pts = [s for s in (strokes or [])
+           if s.get("hr", 0) > 0 and s.get("pace", 0) > 0]
+    if len(pts) < 6:
+        return {}
+    mid = pts[len(pts) // 2].get("t", 0)
+
+    def ef(group):
+        if not group:
+            return 0.0
+        # speed (m/s) = 500 / pace_s; efficiency = speed / HR.
+        speeds = [500.0 / s["pace"] for s in group]
+        hrs = [s["hr"] for s in group]
+        return (sum(speeds) / len(speeds)) / (sum(hrs) / len(hrs))
+
+    first = ef([s for s in pts if s.get("t", 0) <= mid])
+    second = ef([s for s in pts if s.get("t", 0) > mid])
+    if first <= 0 or second <= 0:
+        return {}
+    return {
+        "pct": (first - second) / first * 100.0,
+        "first_ef": first,
+        "second_ef": second,
+    }
+
+
 def time_in_zone_from_strokes(strokes: list) -> dict:
     """Seconds spent in each HR zone, from a per-stroke series.
 

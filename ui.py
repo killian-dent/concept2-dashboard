@@ -34,6 +34,21 @@ ACCENT_PR   = "#7ec97a"     # green — PRs, improvements
 ACCENT_SEL  = "#6aa3e6"     # blue — selection, primary action
 ACCENT_WARN = "#e6b86a"     # amber — attention, regressions
 
+# HR-zone palette (1→5). Zone 2 is green — the aerobic-base zone the plan
+# wants most volume in; 4/5 warm up toward red to read as "hard".
+ZONE_COLORS = {
+    1: "#6b8cae",   # recovery — muted blue
+    2: "#7ec97a",   # aerobic base — green (the good zone)
+    3: "#6aa3e6",   # aerobic/tempo — blue
+    4: "#e6b86a",   # threshold — amber
+    5: "#e07a5f",   # VO2max/max — terracotta red
+}
+
+
+def zone_color(zone: int) -> str:
+    """Color for an HR zone number; falls back to a neutral hairline tone."""
+    return ZONE_COLORS.get(zone, INK_3)
+
 
 def inject_styles():
     """One-time CSS injection. Tightens padding and re-skins Streamlit

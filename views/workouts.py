@@ -12,8 +12,11 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+import api
+import config
 import ui
-from data import format_duration
+from data import format_duration, zone_name
+from data_extras import time_in_zone_from_strokes, decoupling
 
 
 def render(df: pd.DataFrame):
@@ -120,6 +123,8 @@ def _render_detail(row: pd.Series):
             "totals; rankings use work figures only."
         )
 
+    _render_hr_analysis(row)
+
     if splits:
         st.html(
             f"<div style='font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;"
@@ -173,3 +178,137 @@ def _render_detail(row: pd.Series):
         )
         chart = (bars + labels).properties(height=280)
         st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+
+
+# ── Per-stroke HR analysis (trace · time-in-zone · decoupling) ───────────
+
+def _render_hr_analysis(row: pd.Series):
+    """HR-over-time trace, time-in-zone split, and aerobic-decoupling readout
+    for the open workout, using the per-stroke series (fetched + cached)."""
+    uid = st.session_state.get("user_id", "me")
+    with st.spinner("Loading stroke data…"):
+        strokes = api.cached_strokes(uid, int(row["id"]))
+
+    # Easy-day cap verdict (uses session avg HR; works even without strokes).
+    _render_cap_verdict(row)
+
+    if not strokes:
+        st.caption("No per-stroke data available for this workout.")
+        return
+
+    pts = pd.DataFrame(
+        [{"t_min": s.get("t", 0) / 60.0, "hr": s.get("hr", 0)}
+         for s in strokes if s.get("hr", 0) > 0]
+    )
+    if pts.empty:
+        st.caption("No heart-rate samples recorded for this workout.")
+        return
+
+    ui.section_label("Heart rate", margin="18px 0 6px")
+
+    # Faint zone bands behind the HR trace, clipped to the data's HR range.
+    hr_lo, hr_hi = pts["hr"].min() - 4, pts["hr"].max() + 4
+    bands = []
+    for z, name, lo, hi in config.HR_ZONES:
+        b_lo, b_hi = max(lo, hr_lo), min(hi, hr_hi)
+        if b_hi > b_lo:
+            bands.append({"lo": b_lo, "hi": b_hi, "zone": f"Z{z}",
+                          "color": ui.zone_color(z)})
+    band_df = pd.DataFrame(bands)
+
+    band_layer = (
+        alt.Chart(band_df).mark_rect(opacity=0.13).encode(
+            y=alt.Y("lo:Q", scale=alt.Scale(domain=[hr_lo, hr_hi]),
+                    axis=alt.Axis(title="bpm")),
+            y2="hi:Q",
+            color=alt.Color("color:N", scale=None, legend=None),
+        )
+    ) if not band_df.empty else None
+
+    line = (
+        alt.Chart(pts).mark_line(color=ui.INK_0, strokeWidth=1.4).encode(
+            x=alt.X("t_min:Q", axis=alt.Axis(title="min")),
+            y=alt.Y("hr:Q", scale=alt.Scale(domain=[hr_lo, hr_hi]),
+                    axis=alt.Axis(title="bpm")),
+            tooltip=[alt.Tooltip("t_min:Q", format=".1f", title="Min"),
+                     alt.Tooltip("hr:Q", title="HR")],
+        )
+    )
+    layers = [l for l in (band_layer, line) if l is not None]
+    chart = alt.layer(*layers).properties(height=200)
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+
+    _render_time_in_zone(strokes)
+    _render_decoupling(row, strokes)
+
+
+def _render_cap_verdict(row: pd.Series):
+    """For an easy aerobic steady piece, was the HR held under the plan cap?"""
+    cap = config.EASY_HR_CAP
+    hr = int(row.get("hr_avg", 0) or 0)
+    steady = row.get("category", "SteadyState") != "Interval"
+    long_enough = (row.get("time_s", 0) or 0) >= 15 * 60
+    if not (hr and steady and long_enough and hr <= 126):
+        return
+    ok = hr <= cap
+    color = ui.ACCENT_PR if ok else ui.ACCENT_WARN
+    mark = "✓" if ok else "✗"
+    verb = f"held under {cap}" if ok else f"over the {cap} cap"
+    st.html(
+        f"<div style='margin:10px 0;font-size:12.5px;color:{color};"
+        f"font-weight:500;'>{mark} Easy-day check: avg HR {hr} — {verb} bpm.</div>"
+    )
+
+
+def _render_time_in_zone(strokes: list):
+    tiz = time_in_zone_from_strokes(strokes)
+    if not tiz:
+        return
+    total = sum(tiz.values()) or 1
+    ui.section_label("Time in zone", margin="14px 0 6px")
+    rows = []
+    for z in (1, 2, 3, 4, 5):
+        secs = tiz.get(z, 0)
+        if secs <= 0:
+            continue
+        pct = secs / total * 100
+        mins = secs / 60.0
+        rows.append({"zone": f"Z{z} {zone_name(z)}", "minutes": mins,
+                     "pct": pct, "color": ui.zone_color(z)})
+    if not rows:
+        return
+    tz_df = pd.DataFrame(rows)
+    chart = (
+        alt.Chart(tz_df).mark_bar().encode(
+            x=alt.X("minutes:Q", axis=alt.Axis(title="min")),
+            y=alt.Y("zone:N", sort=[r["zone"] for r in rows],
+                    axis=alt.Axis(title=None)),
+            color=alt.Color("color:N", scale=None, legend=None),
+            tooltip=[alt.Tooltip("zone:N", title="Zone"),
+                     alt.Tooltip("minutes:Q", format=".1f", title="Minutes"),
+                     alt.Tooltip("pct:Q", format=".0f", title="%")],
+        ).properties(height=24 * len(rows) + 20)
+    )
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+
+
+def _render_decoupling(row: pd.Series, strokes: list):
+    """Cardiac-drift readout for steady pieces (skip interval sessions)."""
+    if row.get("category", "SteadyState") == "Interval":
+        return
+    dec = decoupling(strokes)
+    if not dec:
+        return
+    pct = dec["pct"]
+    good = pct < 5.0
+    color = ui.ACCENT_PR if good else ui.ACCENT_WARN
+    note = ("aerobically sound — pace held without HR drifting up"
+            if good else "HR drifted up in the back half (cardiac drift)")
+    st.html(
+        f"<div style='margin:12px 0 2px;font-size:12.5px;'>"
+        f"<span style='color:{ui.INK_2};'>Aerobic decoupling</span> "
+        f"<span style='color:{color};font-weight:600;font-variant-numeric:"
+        f"tabular-nums;'>{pct:+.1f}%</span></div>"
+        f"<div style='font-size:11px;color:{ui.INK_3};'>{note} · "
+        f"&lt;5% is well-coupled</div>"
+    )

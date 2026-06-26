@@ -16,8 +16,9 @@ import streamlit as st
 
 import config
 import ui
-from data import format_pace
-from data_extras import aerobic_efficiency, aerobic_efficiency_summary
+from data import format_pace, zone_name
+from data_extras import (aerobic_efficiency, aerobic_efficiency_summary,
+                          weekly_zone_minutes, easy_ratio)
 
 # The plan's illustrative target band for the easy-day split at 120 bpm.
 _TARGET_FAST_S = 150  # 2:30
@@ -36,6 +37,7 @@ def render(df: pd.DataFrame):
     )
 
     _render_efficiency(df)
+    _render_zone_distribution(df)
 
 
 # ── Aerobic efficiency tracker (the headline metric) ─────────────────────
@@ -126,4 +128,60 @@ def _render_efficiency(df: pd.DataFrame):
     )
 
     chart = (target + line + pts + trend).properties(height=320)
+    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+
+
+# ── Weekly intensity distribution (the 80/20 pyramid check) ──────────────
+
+def _render_zone_distribution(df):
+    ui.section_label("Intensity distribution · last 12 weeks")
+
+    zm = weekly_zone_minutes(df, days=84)
+    if zm.empty:
+        st.info("No heart-rate data yet — once sessions log HR, your weekly "
+                "easy/hard split shows up here.")
+        return
+
+    ratio = easy_ratio(zm)
+    pct = round(ratio * 100)
+    on_target = pct >= 80
+    color = ui.ACCENT_PR if on_target else ui.ACCENT_WARN
+
+    c1, c2 = st.columns([1, 2])
+    c1.metric("Easy (Z1–2)", f"{pct}%",
+              delta=("on target" if on_target else "below 80%"),
+              delta_color="normal" if on_target else "inverse")
+    with c2:
+        st.caption(
+            "The plan is **pyramidal**: keep ~**80%** of weekly minutes easy "
+            "(Zones 1–2, green/blue). Bars classify each session by its average "
+            "heart rate. If the warm colours (Z4–5) dominate, the easy days "
+            "aren't easy enough."
+        )
+
+    zm = zm.copy()
+    zm["zone_label"] = zm["hr_zone"].apply(lambda z: f"Z{z} {zone_name(z)}")
+    domain = [f"Z{z} {zone_name(z)}" for z in (1, 2, 3, 4, 5)]
+    rng = [ui.zone_color(z) for z in (1, 2, 3, 4, 5)]
+
+    chart = (
+        alt.Chart(zm)
+        .mark_bar()
+        .encode(
+            x=alt.X("week:T", axis=alt.Axis(format="%b %d", title=None,
+                                             labelAngle=-30, tickCount="week")),
+            y=alt.Y("minutes:Q", stack="normalize",
+                     axis=alt.Axis(title=None, format="%")),
+            color=alt.Color("zone_label:N",
+                            scale=alt.Scale(domain=domain, range=rng),
+                            legend=alt.Legend(title=None, symbolType="square")),
+            order=alt.Order("hr_zone:Q", sort="ascending"),
+            tooltip=[
+                alt.Tooltip("week:T", format="%b %d", title="Week of"),
+                alt.Tooltip("zone_label:N", title="Zone"),
+                alt.Tooltip("minutes:Q", format=".0f", title="Minutes"),
+            ],
+        )
+        .properties(height=260)
+    )
     st.altair_chart(ui.altair_theme(chart), use_container_width=True)
