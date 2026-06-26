@@ -188,6 +188,32 @@ def aerobic_efficiency_summary(eff: pd.DataFrame) -> dict:
     }
 
 
+def time_in_zone_from_strokes(strokes: list) -> dict:
+    """Seconds spent in each HR zone, from a per-stroke series.
+
+    Each sample's duration is the gap to the next sample (the last sample
+    inherits the previous gap). Returns {zone_number: seconds}; zones with no
+    time are omitted. Empty dict if there's no stroke/HR data.
+    """
+    from data import zone_for
+    if not strokes:
+        return {}
+    secs: dict = {}
+    n = len(strokes)
+    for i, s in enumerate(strokes):
+        if i + 1 < n:
+            dt = strokes[i + 1].get("t", 0) - s.get("t", 0)
+        elif i > 0:
+            dt = s.get("t", 0) - strokes[i - 1].get("t", 0)
+        else:
+            dt = 0
+        dt = max(0.0, float(dt))
+        z = zone_for(s.get("hr", 0))
+        if z:
+            secs[z] = secs.get(z, 0.0) + dt
+    return secs
+
+
 def wod_summary(wod_rows: list) -> dict:
     """Aggregate stats across logged WOD attempts. Rows need 'rank' and 'total'."""
     if not wod_rows:

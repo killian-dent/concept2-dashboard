@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 import config
+import db
 from config import API_TOKEN, API_BASE_URL, API_VERSION, RESULTS_PER_PAGE, is_placeholder_token
 from data import generate_sample_results, pace_from_time_distance, watts_from_pace, format_pace
 
@@ -268,6 +269,107 @@ def fetch_result_detail(result_id: int, user_id: Optional[int] = None) -> dict:
     body = _get(f"users/{user_id}/results/{result_id}")
     raw = body.get("data", {})
     return _normalize(raw) if raw else {}
+
+
+# ---------------------------------------------------------------------------
+# Per-stroke data (time-in-zone / decoupling enabler)
+# ---------------------------------------------------------------------------
+
+def _normalize_stroke(s: dict) -> dict:
+    """Normalise one raw stroke sample to {t, distance, pace, spm, hr}.
+
+    The strokes endpoint returns compact keys (t/d/p/spm/hr). Time and distance
+    come in tenths (consistent with the rest of the API); we expose seconds and
+    metres. Accepts a couple of key spellings defensively since the exact shape
+    can only be confirmed against a live account — only t and hr are essential
+    (they drive time-in-zone).
+    """
+    def g(*keys, default=0):
+        for k in keys:
+            v = s.get(k)
+            if v is not None:
+                return v
+        return default
+
+    t = g("t", "time") / 10.0
+    d = g("d", "distance") / 10.0
+    p = g("p", "pace") / 10.0
+    return {
+        "t":        round(t, 1),
+        "distance": round(d, 1),
+        "pace":     round(p, 1),
+        "spm":      g("spm", "stroke_rate"),
+        "hr":       g("hr", "heart_rate"),
+    }
+
+
+def _sample_strokes(result_id: int) -> list[dict]:
+    """Synthesise a plausible stroke series for sample mode from the matching
+    sample workout, so the time-in-zone / HR-trace UI works without a token."""
+    import random
+    for r in generate_sample_results():
+        if r["id"] != result_id:
+            continue
+        w = r["workout"]
+        total = w.get("time_seconds", 0) or 0
+        if total <= 0:
+            return []
+        hr_avg = w.get("heart_rate_average", 0) or 0
+        splits = w.get("splits", [])
+        rnd = random.Random(result_id)
+        out, t, step = [], 0.0, 5.0
+        while t < total:
+            frac = t / total
+            sp = splits[min(int(frac * len(splits)), len(splits) - 1)] if splits else None
+            pace = (sp or {}).get("pace", w.get("pace", 0))
+            warm = min(1.0, t / 120.0)          # HR ramps up over first 2 min
+            hr = hr_avg * (0.85 + 0.15 * warm) + rnd.uniform(-3, 3)
+            out.append({
+                "t":        round(t, 1),
+                "distance": round(w.get("distance", 0) * frac, 1),
+                "pace":     round(pace, 1),
+                "spm":      max(0, w.get("spm", 20) + rnd.randint(-1, 1)),
+                "hr":       int(hr),
+            })
+            t += step
+        return out
+    return []
+
+
+def fetch_strokes(result_id: int, user_id: Optional[int] = None) -> list[dict]:
+    """Return the per-stroke series for a result.
+
+    Live path: GET /api/users/{user_id}/results/{result_id}/strokes
+    Returns a list of {t, distance, pace, spm, hr}. Empty list when no stroke
+    data exists for the result. Falls back to synthesised data in sample mode.
+    """
+    if is_placeholder_token():
+        return _sample_strokes(result_id)
+
+    if user_id is None:
+        user_id = getattr(config, "USER_ID", None)
+    try:
+        body = _get(f"users/{user_id}/results/{result_id}/strokes")
+    except Exception:
+        return []
+    raw = body.get("data", [])
+    return [_normalize_stroke(s) for s in raw]
+
+
+def cached_strokes(user_id, result_id: int) -> list[dict]:
+    """Get-or-fetch the stroke series, persisting it in SQLite.
+
+    Stroke data never changes once a workout is logged, so this is cached
+    permanently (no TTL). An empty result is cached too, so we don't re-hit the
+    API for workouts that have no stroke data.
+    """
+    uid = str(user_id)
+    cached = db.strokes_get(uid, result_id)
+    if cached is not None:
+        return cached
+    data = fetch_strokes(result_id, user_id)
+    db.strokes_set(uid, result_id, data)
+    return data
 
 
 def fetch_ranking(

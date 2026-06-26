@@ -39,6 +39,13 @@ def _init(conn: sqlite3.Connection):
             data       TEXT NOT NULL,
             fetched_at TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS strokes (
+            user_id    TEXT    NOT NULL,
+            result_id  INTEGER NOT NULL,
+            data       TEXT    NOT NULL,
+            fetched_at TEXT    NOT NULL,
+            PRIMARY KEY (user_id, result_id)
+        );
     """)
     conn.commit()
 
@@ -165,6 +172,36 @@ def cache_set(key: str, data: dict) -> None:
     conn.execute(
         "INSERT OR REPLACE INTO cache (key, data, fetched_at) VALUES (?, ?, ?)",
         (key, json.dumps(data), datetime.now(tz=timezone.utc).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def strokes_get(user_id: str, result_id: int) -> Optional[list]:
+    """Return the stored per-stroke series for a result, or None if never fetched.
+
+    An empty list is a valid stored value meaning "fetched, no stroke data" —
+    distinct from None ("not yet fetched"), so callers don't re-fetch in vain.
+    """
+    conn = _db()
+    row = conn.execute(
+        "SELECT data FROM strokes WHERE user_id = ? AND result_id = ?",
+        (user_id, result_id),
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    return json.loads(row["data"])
+
+
+def strokes_set(user_id: str, result_id: int, data: list) -> None:
+    """Persist a per-stroke series for a result (keyed by user + result id)."""
+    conn = _db()
+    conn.execute(
+        "INSERT OR REPLACE INTO strokes (user_id, result_id, data, fetched_at) "
+        "VALUES (?, ?, ?, ?)",
+        (user_id, result_id, json.dumps(data),
+         datetime.now(tz=timezone.utc).isoformat()),
     )
     conn.commit()
     conn.close()
