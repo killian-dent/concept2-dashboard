@@ -55,6 +55,35 @@ def calories_from_watts_time(watts: float, time_seconds: float) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Heart-rate zones (training-plan model)
+# ---------------------------------------------------------------------------
+
+def zone_for(bpm: float) -> int:
+    """Map a heart rate to a zone number 1-5 using config.HR_ZONES.
+
+    Returns 0 when no/zero HR. A bpm below the Zone-1 floor still counts as
+    Zone 1 (very easy); at/above the top counts as the max zone. Boundaries are
+    inclusive at the lower edge (e.g. 126 bpm → Zone 3, not Zone 2).
+    """
+    if not bpm or bpm <= 0:
+        return 0
+    from config import HR_ZONES
+    for z, _name, _lo, hi in HR_ZONES:
+        if bpm < hi:
+            return z
+    return HR_ZONES[-1][0]
+
+
+def zone_name(zone: int) -> str:
+    """Human label for a zone number (e.g. 2 → 'Aerobic base'). '' for 0."""
+    from config import HR_ZONES
+    for z, name, _lo, _hi in HR_ZONES:
+        if z == zone:
+            return name
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Sample data generation
 # ---------------------------------------------------------------------------
 
@@ -136,7 +165,8 @@ def generate_sample_results() -> list[dict]:
         pace = max(pace, pace_min - 5)  # floor
 
         spm = random.randint(20, 28)
-        hr_avg = random.randint(145, 172)
+        # Span easy→hard so zone-based views have a realistic spread to show.
+        hr_avg = random.randint(112, 172)
 
         if wtype == "distance":
             time_s = pace * (dist / 500.0)
@@ -150,6 +180,8 @@ def generate_sample_results() -> list[dict]:
         kcal = calories_from_watts_time(watts, time_s)
         splits = _random_splits(distance_m if wtype == "distance" else None, time_s, pace, spm)
 
+        hr_min = max(90, hr_avg - random.randint(8, 16))
+        hr_max = min(185, hr_avg + random.randint(5, 14))
         result = {
             "id": result_id,
             "date": current_date.strftime("%Y-%m-%dT%H:%M:%S+00:00"),
@@ -158,13 +190,24 @@ def generate_sample_results() -> list[dict]:
             "workout": {
                 "type": wtype,
                 "label": label,
+                "category": "SteadyState",
+                "raw_type": "FixedTimeRow" if wtype == "time" else "FixedDistRow",
                 "distance": distance_m,
                 "time": round(time_s * 10),  # tenths of seconds (API format)
                 "time_seconds": round(time_s, 1),
                 "spm": spm,
+                "stroke_count": int(spm * (time_s / 60.0)),
                 "heart_rate_average": hr_avg,
+                "heart_rate_min": hr_min,
+                "heart_rate_max": hr_max,
+                "heart_rate_ending": hr_avg + random.randint(-3, 4),
+                "heart_rate_recovery": max(80, hr_max - random.randint(18, 32)),
                 "watts_average": round(watts, 1),
+                "wattminutes": round(watts * (time_s / 60.0)),
                 "calories": kcal,
+                "comments": "",
+                "verified": True,
+                "ranked": True,
                 "pace": pace,
                 "pace_formatted": format_pace(pace),
                 "splits": splits,
@@ -204,11 +247,14 @@ def load_results_df(raw_results: tuple) -> pd.DataFrame:
         dist = w.get("distance", 0)
         pace_s = w.get("pace") or pace_from_time_distance(time_s, dist)
         watts = w.get("watts_average") or watts_from_pace(pace_s)
+        hr_avg = w.get("heart_rate_average", 0)
         rows.append({
             "id":               r["id"],
             "date":             pd.to_datetime(r["date"]),
             "label":            w.get("label", "Workout"),
             "type":             w.get("type", "distance"),
+            "category":         w.get("category", "SteadyState"),
+            "raw_type":         w.get("raw_type", ""),
             "distance_m":       dist,
             "time_s":           time_s,
             "duration":         format_duration(time_s),
@@ -217,10 +263,20 @@ def load_results_df(raw_results: tuple) -> pd.DataFrame:
             "pace_s":           pace_s,
             "pace":             format_pace(pace_s),
             "spm":              w.get("spm", 0),
-            "hr_avg":           w.get("heart_rate_average", 0),
+            "stroke_count":     w.get("stroke_count", 0) or 0,
+            "hr_avg":           hr_avg,
+            "hr_min":           w.get("heart_rate_min", 0) or 0,
+            "hr_max":           w.get("heart_rate_max", 0) or 0,
+            "hr_ending":        w.get("heart_rate_ending", 0) or 0,
+            "hr_recovery":      w.get("heart_rate_recovery", 0) or 0,
+            "hr_zone":          zone_for(hr_avg),
             "watts":            round(watts, 1),
+            "wattminutes":      w.get("wattminutes", 0) or 0,
             "calories":         w.get("calories", 0),
             "drag_factor":      w.get("drag_factor", 0) or 0,
+            "comments":         w.get("comments", "") or "",
+            "verified":         bool(w.get("verified", False)),
+            "ranked":           bool(w.get("ranked", False)),
             "splits":           w.get("splits", []),
         })
     df = pd.DataFrame(rows)

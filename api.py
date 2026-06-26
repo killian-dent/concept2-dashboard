@@ -117,6 +117,21 @@ def _label(r: dict) -> str:
     return f"{dist:,}m" if dist else wt
 
 
+def _category(workout_type: str) -> str:
+    """Coarse training category from the Concept2 workout_type.
+
+    Used by the plan-adherence views to tell interval days from steady pieces.
+    'SteadyState' covers single time/distance pieces (the plan's easy/steady
+    days); easy-vs-steady is refined later by HR/duration, not by type.
+    """
+    wt = workout_type or ""
+    if wt == "VariableInterval" or "Interval" in wt:
+        return "Interval"
+    if wt == "JustRow":
+        return "JustRow"
+    return "SteadyState"
+
+
 def _normalize(r: dict) -> dict:
     """
     Convert a raw Concept2 API result dict into our internal shape,
@@ -162,16 +177,27 @@ def _normalize(r: dict) -> dict:
         "workout": {
             "type":               "time" if is_timed else "distance",
             "label":              _label(r),
+            "category":           _category(wt),
+            "raw_type":           wt,
             "distance":           dist,
             "time":               time_tenths,
             "time_seconds":       time_s,
             "rest_distance":      rest_dist,
             "rest_time_seconds":  rest_time_s,
             "spm":                r.get("stroke_rate", 0),
+            "stroke_count":       r.get("stroke_count", 0) or 0,
             "heart_rate_average": hr.get("average", 0),
+            "heart_rate_min":     hr.get("min", 0) or 0,
+            "heart_rate_max":     hr.get("max", 0) or 0,
+            "heart_rate_ending":  hr.get("ending", 0) or 0,
+            "heart_rate_recovery": hr.get("recovery", 0) or 0,
             "watts_average":      round(watts_from_pace(pace_s), 1) if pace_s else 0,
+            "wattminutes":        r.get("wattminutes_total", 0) or 0,
             "calories":           r.get("calories_total", 0),
             "drag_factor":        r.get("drag_factor", 0) or 0,
+            "comments":           r.get("comments") or "",
+            "verified":           bool(r.get("verified", False)),
+            "ranked":             bool(r.get("ranked", False)),
             "pace":               pace_s,
             "pace_formatted":     format_pace(pace_s),
             "splits":             splits,

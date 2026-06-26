@@ -20,6 +20,32 @@ API_VERSION = "v1"
 
 RESULTS_PER_PAGE = 100
 
+# ── Heart-rate zones ───────────────────────────────────────────────────────
+# Zones are derived proportionally from MAX_HR (see rowing-plan-summary.md).
+# MAX_HR is an estimate (observed session-average peak ~173, anchored at 180);
+# override via the MAX_HR secret/env var if a PM5 peak above 180 is ever seen —
+# all zone boundaries shift with it.
+_max_hr = _secret("MAX_HR", "180")
+MAX_HR = int(_max_hr) if _max_hr.isdigit() else 180
+
+# (zone, name, %max low, %max high) — pyramidal plan zones.
+_ZONE_PCTS = [
+    (1, "Recovery",      0.50, 0.60),
+    (2, "Aerobic base",  0.60, 0.70),
+    (3, "Aerobic/tempo", 0.70, 0.80),
+    (4, "Threshold",     0.80, 0.90),
+    (5, "VO2max/max",    0.90, 1.00),
+]
+# Materialised as (zone, name, low_bpm, high_bpm). zone_for() in data.py maps a
+# bpm to a zone number using these boundaries.
+HR_ZONES = [(z, name, round(lo * MAX_HR), round(hi * MAX_HR))
+            for z, name, lo, hi in _ZONE_PCTS]
+
+# Day-1 easy-aerobic HR ceiling. The plan starts at 120 and raises it as the
+# aerobic base develops; override via the EASY_HR_CAP secret/env var.
+_easy_cap = _secret("EASY_HR_CAP", "120")
+EASY_HR_CAP = int(_easy_cap) if _easy_cap.isdigit() else 120
+
 STANDARD_DISTANCES = {
     "100m":          100,
     "500m":          500,
