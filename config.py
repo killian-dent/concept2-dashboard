@@ -46,6 +46,15 @@ HR_ZONES = [(z, name, round(lo * MAX_HR), round(hi * MAX_HR))
 _easy_cap = _secret("EASY_HR_CAP", "120")
 EASY_HR_CAP = int(_easy_cap) if _easy_cap.isdigit() else 120
 
+# Optional plan start date (YYYY-MM-DD, the Monday of week 1). When set, the
+# Plan tab can show 6-week block position and recovery-week markers. Leave
+# unset to skip those annotations.
+PLAN_START_DATE = _secret("PLAN_START_DATE", "").strip() or None
+
+# The plan runs in 6-week blocks; every 4th week is a recovery week.
+PLAN_BLOCK_WEEKS = 6
+PLAN_RECOVERY_EVERY = 4
+
 STANDARD_DISTANCES = {
     "100m":          100,
     "500m":          500,

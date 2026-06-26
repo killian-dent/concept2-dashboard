@@ -18,7 +18,8 @@ import config
 import ui
 from data import format_pace, zone_name
 from data_extras import (aerobic_efficiency, aerobic_efficiency_summary,
-                          weekly_zone_minutes, easy_ratio)
+                          weekly_zone_minutes, easy_ratio,
+                          weekly_plan, plan_week_label)
 
 # The plan's illustrative target band for the easy-day split at 120 bpm.
 _TARGET_FAST_S = 150  # 2:30
@@ -38,6 +39,7 @@ def render(df: pd.DataFrame):
 
     _render_efficiency(df)
     _render_zone_distribution(df)
+    _render_adherence(df)
 
 
 # ── Aerobic efficiency tracker (the headline metric) ─────────────────────
@@ -185,3 +187,77 @@ def _render_zone_distribution(df):
         .properties(height=260)
     )
     st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+
+
+# ── Weekly plan adherence (Mon/Wed/Fri checklist) ────────────────────────
+
+def _render_adherence(df):
+    ui.section_label("Weekly plan adherence")
+
+    weeks = weekly_plan(df, weeks=6)
+    if not weeks or all(w["sessions"] == 0 for w in weeks):
+        st.caption("No recent sessions to check against the Mon/Wed/Fri plan.")
+        return
+
+    if config.PLAN_START_DATE is None:
+        st.caption(
+            "Easy · Intervals · Steady — the week's three target sessions. "
+            "Set `PLAN_START_DATE` in secrets to also see 6-week block and "
+            "recovery-week markers."
+        )
+
+    for w in weeks:
+        _render_week_row(w)
+
+
+def _render_week_row(w):
+    ctx = plan_week_label(w["week"], config.PLAN_START_DATE)
+    recovery = ctx.get("recovery", False)
+
+    when = pd.Timestamp(w["week"]).strftime("%b %d")
+    block_txt = ""
+    if ctx:
+        block_txt = (f" · Block {ctx['block']} wk {ctx['week_in_block']}"
+                     + (" · recovery" if recovery else ""))
+
+    def chip(label, done, expected=True):
+        if not expected:
+            bg, col, txt = ui.BG_2, ui.INK_3, f"{label} n/a"
+        elif done:
+            bg, col, txt = "rgba(126,201,122,0.15)", ui.ACCENT_PR, f"✓ {label}"
+        else:
+            bg, col, txt = ui.BG_2, ui.INK_3, f"○ {label}"
+        return (f"<span style='display:inline-block;padding:2px 8px;"
+                f"border-radius:99px;background:{bg};color:{col};"
+                f"font-size:10.5px;font-weight:500;margin-right:4px;'>{txt}</span>")
+
+    # Intervals aren't expected on a recovery week (Zone 1 only).
+    chips = (
+        chip("Easy", w["easy_done"])
+        + chip("Intervals", w["intervals_done"], expected=not recovery)
+        + chip("Steady", w["steady_done"])
+    )
+
+    easy_pct = round(w["easy_pct"])
+    easy_col = ui.ACCENT_PR if easy_pct >= 80 else ui.INK_2
+    easy_badge = (
+        f"<span style='font-size:10.5px;color:{easy_col};"
+        f"font-variant-numeric:tabular-nums;'>{easy_pct}% easy</span>"
+        if w["sessions"] else ""
+    )
+
+    detail = " · ".join(
+        f"{it['day']} {it['label']}" for it in w["items"]
+    ) or "no sessions"
+
+    st.html(f"""
+    <div style="padding:10px 4px;border-bottom:1px solid {ui.LINE};">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <div style="font-size:11px;color:{ui.INK_2};font-weight:600;
+                    letter-spacing:0.04em;">Week of {when}{block_txt}</div>
+        {easy_badge}
+      </div>
+      <div style="margin-top:6px;">{chips}</div>
+      <div style="margin-top:5px;font-size:10.5px;color:{ui.INK_3};">{detail}</div>
+    </div>
+    """)

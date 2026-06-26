@@ -194,6 +194,102 @@ def _utc(series: pd.Series) -> pd.Series:
             if series.dt.tz is not None else series.dt.tz_localize("UTC"))
 
 
+# ── Session classification + weekly plan adherence ───────────────────────
+
+def classify_session(row) -> str:
+    """Bucket a session against the plan's three workout types.
+
+    Returns one of: 'intervals' (the Wed hard day), 'easy' (Mon long-easy,
+    Zone 1-2 steady), 'steady' (Fri Zone-3 steady), 'hard_steady' (a steady
+    piece run too hard — Zone 4+), 'short' (warmup/cooldown/test, <12 min), or
+    'other' (steady with no HR to classify).
+    """
+    cat = row.get("category", "SteadyState")
+    dur = row.get("time_s", 0) or 0
+    z = row.get("hr_zone", 0) or 0
+    if cat == "Interval":
+        return "intervals"
+    if dur < 12 * 60:
+        return "short"
+    if z and z <= 2:
+        return "easy"
+    if z == 3:
+        return "steady"
+    if z >= 4:
+        return "hard_steady"
+    return "other"
+
+
+def weekly_plan(df: pd.DataFrame, weeks: int = 8) -> list:
+    """Per-week adherence to the Mon/Wed/Fri plan, newest week first.
+
+    For each of the last `weeks` calendar weeks (Mon-start) returns a dict:
+      week (Timestamp, Monday), sessions (int), easy_pct (float 0-100),
+      easy_done / intervals_done / steady_done (bool), and `items` — the
+      classified sessions (label, kind, duration, hr, day).
+    Weeks with no sessions are still included so gaps are visible.
+    """
+    if df.empty:
+        return []
+    d = _utc(df["date"]).dt.tz_localize(None)
+    work = df.copy()
+    work["day"] = d
+    work["wk"] = d.dt.to_period("W").apply(lambda p: p.start_time)
+    work["kind"] = work.apply(classify_session, axis=1)
+
+    this_week = pd.Timestamp.now().normalize().to_period("W").start_time
+    week_starts = [this_week - pd.Timedelta(weeks=i) for i in range(weeks)]
+
+    out = []
+    for wk in week_starts:
+        sub = work[work["wk"] == wk]
+        kinds = set(sub["kind"])
+        zone_min = (sub.assign(minutes=sub["time_s"] / 60.0)
+                    [sub["hr_zone"] > 0])
+        total_min = zone_min["minutes"].sum() if not zone_min.empty else 0
+        easy_min = (zone_min[zone_min["hr_zone"] <= 2]["minutes"].sum()
+                    if not zone_min.empty else 0)
+        items = [
+            {"label": r["label"], "kind": r["kind"],
+             "duration": r["duration"], "hr": int(r["hr_avg"] or 0),
+             "day": r["day"].strftime("%a")}
+            for _, r in sub.sort_values("day").iterrows()
+        ]
+        out.append({
+            "week": wk,
+            "sessions": len(sub),
+            "easy_pct": (easy_min / total_min * 100) if total_min else 0.0,
+            "easy_done": "easy" in kinds,
+            "intervals_done": "intervals" in kinds,
+            "steady_done": "steady" in kinds,
+            "items": items,
+        })
+    return out
+
+
+def plan_week_label(week_start, plan_start) -> dict:
+    """Block/recovery context for a week given the plan start date.
+
+    Returns {} when plan_start is None. Otherwise {block, week_in_block,
+    recovery}: 1-based week index within the current 6-week block and whether
+    it's a recovery week (every 4th week).
+    """
+    if plan_start is None:
+        return {}
+    try:
+        start = pd.Timestamp(plan_start).normalize().to_period("W").start_time
+    except Exception:
+        return {}
+    delta_weeks = int((pd.Timestamp(week_start).normalize() - start).days // 7)
+    if delta_weeks < 0:
+        return {}
+    import config
+    block = delta_weeks // config.PLAN_BLOCK_WEEKS + 1
+    week_in_block = delta_weeks % config.PLAN_BLOCK_WEEKS + 1
+    recovery = (delta_weeks + 1) % config.PLAN_RECOVERY_EVERY == 0
+    return {"block": block, "week_in_block": week_in_block, "recovery": recovery}
+
+
 # ── Weekly HR-zone distribution (the 80/20 pyramid check) ─────────────────
 
 def weekly_zone_minutes(df: pd.DataFrame, days: int = 84) -> pd.DataFrame:
