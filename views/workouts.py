@@ -58,7 +58,15 @@ def render(df: pd.DataFrame):
     if label != "—":
         st.session_state.selected_workout_id = options[label]
 
-    st.caption(f"{len(work)} workouts")
+    cnt, dl = st.columns([3, 1])
+    cnt.caption(f"{len(work)} workouts")
+    dl.download_button(
+        "⬇ Export all (CSV)",
+        _export_csv(df),
+        file_name="concept2_workouts.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
     _render_list(work)
 
     # ── Detail panel ─────────────────────────────────────────────────────
@@ -69,6 +77,12 @@ def render(df: pd.DataFrame):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
+def _export_csv(df: pd.DataFrame) -> bytes:
+    """Flatten the workouts DataFrame to CSV bytes (drops the nested splits)."""
+    cols = [c for c in df.columns if c != "splits"]
+    return df[cols].to_csv(index=False).encode("utf-8")
+
 
 def _render_list(work: pd.DataFrame):
     rows = []

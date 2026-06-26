@@ -165,7 +165,7 @@ with tab_workouts:    workouts.render(df)
 with tab_trends:      trends.render(df)
 with tab_compare:     compare.render(df)
 with tab_wod:         wod.render(df)
-with tab_challenges:  challenges.render()
+with tab_challenges:  challenges.render(df)
 with tab_records:     records.render(df)
 
 

@@ -221,7 +221,8 @@ def percentile_bar_html(rank: int, field: int, height: int = 6) -> str:
     good = top >= 50
     color = ACCENT_PR if good else ACCENT_WARN
     return f"""
-    <div style="margin-top:6px;">
+    <div style="margin-top:6px;" role="img"
+         aria-label="ranked top {top} percent of a field of {field}">
       <div style="position:relative;height:{height}px;background:{BG_2};
                   border-radius:99px;">
         <div style="position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;
@@ -242,13 +243,14 @@ def percentile_bar_html(rank: int, field: int, height: int = 6) -> str:
 # ── Sparkline ────────────────────────────────────────────────────────────
 
 def sparkline_html(values: list, width: int = 64, height: int = 18,
-                   color: str = None) -> str:
+                   color: str = None, label: str = "trend") -> str:
     """
     Simple SVG sparkline. Values are oldest→newest. < 2 values renders empty.
     """
     color = color or ACCENT_SEL
     if not values or len(values) < 2:
-        return f'<svg width="{width}" height="{height}"></svg>'
+        return (f'<svg width="{width}" height="{height}" role="img" '
+                f'aria-label="no {label} data"></svg>')
     vmin, vmax = min(values), max(values)
     span = (vmax - vmin) or 1
     step = width / (len(values) - 1)
@@ -257,11 +259,25 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
         for i, v in enumerate(values)
     )
     return (
-        f'<svg width="{width}" height="{height}" '
+        f'<svg width="{width}" height="{height}" role="img" '
+        f'aria-label="{label} sparkline, {len(values)} points" '
         f'style="display:inline-block;vertical-align:middle;">'
         f'<polyline points="{pts}" fill="none" stroke="{color}" '
         f'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
         f'</svg>'
+    )
+
+
+def progress_bar_html(pct: float, color: str = None, height: int = 8) -> str:
+    """Horizontal progress bar filled to pct (0–100), clamped."""
+    pct = max(0.0, min(100.0, pct))
+    color = color or ACCENT_SEL
+    return (
+        f'<div role="progressbar" aria-valuenow="{round(pct)}" aria-valuemin="0" '
+        f'aria-valuemax="100" style="height:{height}px;background:{BG_2};'
+        f'border-radius:99px;overflow:hidden;margin:8px 0 4px;">'
+        f'<div style="width:{pct:.1f}%;height:100%;background:{color};'
+        f'border-radius:99px;"></div></div>'
     )
 
 

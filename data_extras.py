@@ -11,6 +11,7 @@ Functions:
   wod_percentile(rank, field)      — rank → top X%
   wod_summary(rows)                — aggregate stats across WOD attempts
 """
+import re
 from datetime import timedelta
 import pandas as pd
 
@@ -390,6 +391,47 @@ def time_in_zone_from_strokes(strokes: list) -> dict:
         if z:
             secs[z] = secs.get(z, 0.0) + dt
     return secs
+
+
+# ── Challenge progress (computed locally — API has no per-user progress) ──
+
+def meters_in_window(df: pd.DataFrame, start, end) -> int:
+    """Total meters rowed (work + rest) with date in [start, end] inclusive."""
+    if df.empty:
+        return 0
+    d = _utc(df["date"])
+    start = pd.Timestamp(start).tz_localize("UTC") if pd.Timestamp(start).tz is None else pd.Timestamp(start)
+    end = pd.Timestamp(end).tz_localize("UTC") if pd.Timestamp(end).tz is None else pd.Timestamp(end)
+    end = end + pd.Timedelta(days=1)  # make the end date inclusive
+    sub = df[(d >= start) & (d < end)]
+    if sub.empty:
+        return 0
+    return int((sub["distance_m"] + sub["rest_distance_m"]).sum())
+
+
+_GOAL_PAT = re.compile(r"([\d][\d,]*)\s*(m\b|meters|metres|k\b)", re.IGNORECASE)
+
+
+def parse_goal_meters(*texts) -> int:
+    """Best-effort meters goal parsed from a challenge name/description.
+
+    The challenges API returns no explicit target, but meter goals are usually
+    stated in the text (e.g. "Row 200,000m" / "2,000,000 meters" / "100k").
+    Returns the largest meters-like number found, or 0 if none.
+    """
+    best = 0
+    for t in texts:
+        if not t:
+            continue
+        for num, unit in _GOAL_PAT.findall(str(t)):
+            try:
+                val = int(num.replace(",", ""))
+            except ValueError:
+                continue
+            if unit.lower().startswith("k"):
+                val *= 1000
+            best = max(best, val)
+    return best
 
 
 def wod_summary(wod_rows: list) -> dict:
