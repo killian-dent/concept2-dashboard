@@ -14,15 +14,20 @@ import pandas as pd
 import streamlit as st
 import streamlit.components.v1 as components
 
+import config
 import ui
 from data import format_pace
-from data_extras import compute_period_kpis, daily_meters
+from data_extras import (compute_period_kpis, daily_meters,
+                          aerobic_efficiency, aerobic_efficiency_summary)
 
 
 def render(df: pd.DataFrame):
     if df.empty:
         st.info("No workout data available.")
         return
+
+    # ── Aerobic efficiency hero (the plan's headline metric) ─────────────
+    _render_aerobic_hero(df)
 
     # ── KPI quadrant ─────────────────────────────────────────────────────
     k = compute_period_kpis(df, days=30)
@@ -78,6 +83,54 @@ def render(df: pd.DataFrame):
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
+def _render_aerobic_hero(df):
+    """Full-width hero for the plan's success metric: easy pace at a fixed HR.
+
+    Renders nothing if there aren't enough easy aerobic sessions yet, so the
+    home screen stays clean until the plan has data to show.
+    """
+    cap = config.EASY_HR_CAP
+    eff = aerobic_efficiency(df, cap=cap)
+    if eff.empty or len(eff) < 2:
+        return
+    s = aerobic_efficiency_summary(eff)
+    spark = eff["norm_pace_s"].tolist()
+
+    improved = s["improved_s"]
+    faster = improved > 0
+    delta_color = ui.ACCENT_PR if faster else ui.ACCENT_WARN
+    delta_txt = (f"{'−' if faster else '+'}{abs(improved):.1f}s since start"
+                 if abs(improved) >= 0.1 else "holding steady")
+    # Lower pace is better, so a downward sparkline = improvement → green.
+    spark_html = ui.sparkline_html(spark, width=120, height=22,
+                                   color=delta_color)
+
+    st.html(
+        f"""
+        <div style="padding:14px 16px;background:{ui.BG_1};
+                    border:1px solid {ui.LINE};border-radius:10px;
+                    display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:10px;color:{ui.INK_2};letter-spacing:0.1em;
+                        text-transform:uppercase;font-weight:600;">
+              Aerobic efficiency · easy pace @ {cap} bpm</div>
+            <div style="font-size:30px;font-weight:600;letter-spacing:-0.02em;
+                        margin-top:4px;font-variant-numeric:tabular-nums;
+                        color:{ui.INK_0};">{s['latest_norm_pace']}<span
+                        style="font-size:13px;color:{ui.INK_2};font-weight:400;">
+                        /500</span></div>
+            <div style="font-size:11px;color:{delta_color};font-weight:500;
+                        margin-top:2px;">{delta_txt}</div>
+          </div>
+          <div style="text-align:right;">{spark_html}
+            <div style="font-size:9px;color:{ui.INK_3};margin-top:4px;">
+              {s['count']} easy rows · see Plan tab</div>
+          </div>
+        </div>
+        """
+    )
+
 
 def _section_label(text: str, trailing_link: str = None, tab_name: str = None):
     """Small uppercase section heading with optional right-aligned link.

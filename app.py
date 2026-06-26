@@ -31,7 +31,7 @@ from config import is_placeholder_token
 from data import load_results_df
 
 import ui
-from views import overview, workouts, trends, records, compare, wod, challenges
+from views import overview, workouts, trends, records, compare, wod, challenges, plan
 
 
 # ── Page config ───────────────────────────────────────────────────────────
@@ -145,11 +145,12 @@ ui.render_header(
 
 
 # ── Tab router ────────────────────────────────────────────────────────────
-tab_overview, tab_workouts, tab_trends, tab_compare, tab_wod, tab_challenges, tab_records = st.tabs(
-    ["Overview", "Workouts", "Trends", "Compare", "WOD", "Challenges", "Records"]
+tab_overview, tab_plan, tab_workouts, tab_trends, tab_compare, tab_wod, tab_challenges, tab_records = st.tabs(
+    ["Overview", "Plan", "Workouts", "Trends", "Compare", "WOD", "Challenges", "Records"]
 )
 
 with tab_overview:    overview.render(df)
+with tab_plan:        plan.render(df)
 with tab_workouts:    workouts.render(df)
 with tab_trends:      trends.render(df)
 with tab_compare:     compare.render(df)

@@ -141,6 +141,16 @@ def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool,
                 on_refresh()
 
 
+# ── Section label ─────────────────────────────────────────────────────────
+
+def section_label(text: str, margin: str = "20px 4px 8px"):
+    """Small uppercase section heading (the recurring label style)."""
+    st.html(
+        f"<div style='font-size:10px;color:{INK_2};letter-spacing:0.12em;"
+        f"text-transform:uppercase;font-weight:600;margin:{margin};'>{text}</div>"
+    )
+
+
 # ── KPI cell + grid ──────────────────────────────────────────────────────
 
 def kpi_cell(label: str, value: str, delta: str = "", up: bool = True,

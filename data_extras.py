@@ -14,6 +14,8 @@ Functions:
 from datetime import timedelta
 import pandas as pd
 
+import config
+
 
 # ── KPI deltas: this period vs previous equal-length period ──────────────
 
@@ -115,6 +117,75 @@ def wod_percentile(rank: int, field: int) -> int:
     if not field:
         return 0
     return max(1, round(100 * rank / field))
+
+
+# ── Aerobic efficiency: easy-day pace at a fixed HR over time ─────────────
+
+def aerobic_efficiency(
+    df: pd.DataFrame,
+    cap: int = None,
+    hr_lo: int = 108,
+    hr_hi: int = 126,
+    min_minutes: int = 15,
+) -> pd.DataFrame:
+    """Easy aerobic (Zone-2) steady sessions with pace normalised to a fixed HR.
+
+    This is the dashboard's headline metric: the training plan's success signal
+    is the easy-day split getting *faster at the same heart rate*. We isolate
+    genuinely-easy steady sessions (avg HR in roughly Zone 2, not interval work,
+    at least `min_minutes` long) and project each one's pace to a reference HR
+    (`cap`, default the plan's easy-HR ceiling) so sessions rowed at slightly
+    different heart rates are comparable.
+
+    Normalisation: pace scales inversely with HR (more effort → higher HR →
+    faster pace), so pace_at_cap = pace * hr_avg / cap. Lower = better.
+
+    Returns columns: date, pace_s, pace, hr_avg, spm, norm_pace_s, norm_pace,
+    duration — oldest→newest. Empty frame if no qualifying sessions.
+    """
+    if cap is None:
+        cap = config.EASY_HR_CAP
+    if df.empty:
+        return df
+    sub = df[
+        (df["hr_avg"] >= hr_lo)
+        & (df["hr_avg"] <= hr_hi)
+        & (df["category"] != "Interval")
+        & (df["pace_s"] > 0)
+        & (df["time_s"] >= min_minutes * 60)
+    ].copy()
+    if sub.empty:
+        return sub
+    from data import format_pace
+    sub = sub.sort_values("date")
+    sub["norm_pace_s"] = sub["pace_s"] * sub["hr_avg"] / cap
+    sub["norm_pace"] = sub["norm_pace_s"].apply(format_pace)
+    return sub[["date", "pace_s", "pace", "hr_avg", "spm",
+                "norm_pace_s", "norm_pace", "duration"]]
+
+
+def aerobic_efficiency_summary(eff: pd.DataFrame) -> dict:
+    """Headline numbers for the efficiency tracker.
+
+    Compares the average normalised pace of the earliest vs. latest sessions
+    (up to 3 each) to express the trend as a pace delta. Positive `improved_s`
+    means the easy-day pace at a fixed HR has gotten faster.
+    """
+    if eff is None or eff.empty:
+        return {"count": 0}
+    n = min(3, len(eff))
+    early = eff.head(n)["norm_pace_s"].mean()
+    late = eff.tail(n)["norm_pace_s"].mean()
+    from data import format_pace
+    return {
+        "count": len(eff),
+        "latest_norm_pace_s": float(eff.iloc[-1]["norm_pace_s"]),
+        "latest_norm_pace": format_pace(float(eff.iloc[-1]["norm_pace_s"])),
+        "early_norm_pace_s": float(early),
+        "late_norm_pace_s": float(late),
+        # Lower pace = faster, so improvement is early minus late.
+        "improved_s": float(early - late),
+    }
 
 
 def wod_summary(wod_rows: list) -> dict:
