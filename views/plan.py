@@ -259,10 +259,11 @@ def _render_zone_distribution(df):
     color = ui.ACCENT_PR if on_target else ui.ACCENT_WARN
     status = "on target" if on_target else "below 80%"
 
-    # Track: muted below the 80% target, green at/above it; the marker is this
-    # period's actual easy share, so the goal is to push the marker into green.
+    # Progress toward target: the bar fills from the left to the actual easy
+    # share (amber below target, green at/above), and the white line marks the
+    # 80% target — a standard fill-to-goal reading.
     bar = ui.threshold_bar_html(
-        pct, 100, bands=[(80, ui.BG_2), (100, ui.ACCENT_PR)],
+        80, 100, bands=[(pct, color), (100, ui.BG_2)],
         vmin=0, marker_color=ui.INK_0,
     )
     st.html(
@@ -275,11 +276,13 @@ def _render_zone_distribution(df):
         f"font-variant-numeric:tabular-nums;letter-spacing:-0.02em;'>{pct}%"
         f"<span style='font-size:11px;color:{ui.INK_2};font-weight:400;'> {status}"
         f"</span></span></div>"
-        f"{bar}"
-        f"<div style='display:flex;justify-content:space-between;font-size:9px;"
-        f"letter-spacing:0.06em;text-transform:uppercase;'>"
-        f"<span style='color:{ui.INK_3};'>below 80%</span>"
-        f"<span style='color:{ui.ACCENT_PR};'>80%+ target</span></div>"
+        # bar + a "80% target" label pinned under the marker (padding-bottom
+        # reserves space and stops the bar's margin from collapsing through).
+        f"<div style='position:relative;padding-bottom:13px;'>{bar}"
+        f"<div style='position:absolute;left:80%;bottom:0;"
+        f"transform:translateX(-50%);font-size:9px;letter-spacing:0.04em;"
+        f"text-transform:uppercase;color:{ui.INK_2};white-space:nowrap;'>"
+        f"80% target</div></div>"
         f"</div>"
     )
     st.caption(
