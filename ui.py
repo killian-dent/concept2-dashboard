@@ -12,8 +12,10 @@ Public API:
   kpi_cell(label, value, …) — one tile of the Overview KPI quadrant
   kpi_grid(cells)           — wrap 4 cells in a 2×2 grid (HTML)
   percentile_bar_html(…)    — used by WOD list rows
-  sparkline_html(values)    — inline SVG sparkline
+  sparkline_html(values)    — SVG sparkline as a base64 <img> data URI
 """
+import base64
+
 import streamlit as st
 
 
@@ -246,16 +248,22 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
                    color: str = None, label: str = "trend",
                    fill: bool = False) -> str:
     """
-    Simple SVG sparkline. Values are oldest→newest. < 2 values renders empty.
+    SVG sparkline, returned as a base64 ``<img>`` data URI.
+
+    Streamlit's st.html/st.markdown sanitizer strips inline ``<svg>`` (it shows
+    up fine in some older versions but is removed on current ones), so the SVG
+    is encoded and embedded as an ``<img>``, which survives sanitization. Values
+    are oldest→newest; < 2 values renders a blank spacer of the same size.
 
     When ``fill`` is True, a faint area is drawn under the line (the
     filled-gradient look from the hi-fi mockups). The stroke is inset by
-    ~1px top/bottom so it isn't clipped at the SVG edges.
+    ~1px top/bottom so it isn't clipped at the edges.
     """
     color = color or ACCENT_SEL
     if not values or len(values) < 2:
-        return (f'<svg width="{width}" height="{height}" role="img" '
-                f'aria-label="no {label} data"></svg>')
+        # keep the layout stable even with no data to plot
+        return (f'<span style="display:inline-block;width:{width}px;'
+                f'height:{height}px;"></span>')
     vmin, vmax = min(values), max(values)
     span = (vmax - vmin) or 1
     step = width / (len(values) - 1)
@@ -271,14 +279,19 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
             f'<polygon points="0,{height} {pts} {width:.1f},{height}" '
             f'fill="{color}" fill-opacity="0.14" stroke="none"/>'
         )
-    return (
-        f'<svg width="{width}" height="{height}" role="img" '
-        f'aria-label="{label} sparkline, {len(values)} points" '
-        f'style="display:inline-block;vertical-align:middle;">'
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
+        f'height="{height}" viewBox="0 0 {width} {height}">'
         f'{area}'
         f'<polyline points="{pts}" fill="none" stroke="{color}" '
         f'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
         f'</svg>'
+    )
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    return (
+        f'<img src="data:image/svg+xml;base64,{b64}" '
+        f'width="{width}" height="{height}" alt="{label} sparkline" '
+        f'style="display:inline-block;vertical-align:middle;"/>'
     )
 
 
