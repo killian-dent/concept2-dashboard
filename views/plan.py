@@ -65,27 +65,38 @@ def _render_efficiency(df: pd.DataFrame):
 
     s = aerobic_efficiency_summary(eff)
 
-    # ── KPIs: current normalised pace + trend since the start ────────────
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Easy pace @ %d bpm" % cap, s["latest_norm_pace"])
+    # ── Hero: current normalised easy pace + trend since the start ───────
     improved = s["improved_s"]
+    faster = improved > 0
+    delta_color = ui.ACCENT_PR if faster else ui.ACCENT_WARN
     if abs(improved) >= 0.1:
-        faster = improved > 0
-        c2.metric(
-            "Trend",
-            f"{'−' if faster else '+'}{abs(improved):.1f}s",
-            delta=("faster" if faster else "slower"),
-            delta_color="normal" if faster else "inverse",
-        )
+        arrow = "↓" if faster else "↑"  # lower pace = faster = down
+        delta_txt = f"{arrow} {abs(improved):.1f}s {'faster' if faster else 'slower'} since start"
     else:
-        c2.metric("Trend", "flat")
-    c3.metric("Easy sessions", s["count"])
+        delta_color = ui.INK_2
+        delta_txt = "holding steady"
+    spark = ui.sparkline_html(eff["norm_pace_s"].tolist(), width=140, height=26,
+                              color=delta_color, fill=True)
 
+    st.html(
+        f"<div style='padding:14px 16px;background:{ui.BG_1};"
+        f"border:1px solid {ui.LINE};border-radius:10px;display:flex;"
+        f"justify-content:space-between;align-items:center;'>"
+        f"<div>"
+        f"<div style='font-size:34px;font-weight:600;letter-spacing:-0.02em;"
+        f"font-variant-numeric:tabular-nums;color:{ui.INK_0};'>"
+        f"{s['latest_norm_pace']}<span style='font-size:13px;color:{ui.INK_2};"
+        f"font-weight:400;'>/500</span></div>"
+        f"<div style='font-size:12px;color:{delta_color};font-weight:500;"
+        f"margin-top:3px;'>{delta_txt}</div></div>"
+        f"<div style='text-align:right;'>{spark}"
+        f"<div style='font-size:10px;color:{ui.INK_3};margin-top:5px;'>"
+        f"{s['count']} easy rows · target ~2:30</div></div>"
+        f"</div>"
+    )
     st.caption(
-        "Each point is an easy Zone-2 row; pace is normalised to "
-        f"{cap} bpm so sessions at slightly different heart rates compare "
-        "fairly. **Lower is better** — the goal is this line drifting down "
-        "(toward ~2:30) over the coming weeks."
+        f"Each point is an easy Zone-2 row, pace normalised to {cap} bpm. "
+        "**Lower is better** — the goal is the line drifting down over time."
     )
 
     # ── Chart: normalised easy pace over time ────────────────────────────
@@ -246,18 +257,35 @@ def _render_zone_distribution(df):
     pct = round(ratio * 100)
     on_target = pct >= 80
     color = ui.ACCENT_PR if on_target else ui.ACCENT_WARN
+    status = "on target" if on_target else "below 80%"
 
-    c1, c2 = st.columns([1, 2])
-    c1.metric("Easy (Z1–2)", f"{pct}%",
-              delta=("on target" if on_target else "below 80%"),
-              delta_color="normal" if on_target else "inverse")
-    with c2:
-        st.caption(
-            "The plan is **pyramidal**: keep ~**80%** of weekly minutes easy "
-            "(Zones 1–2, green/blue). Bars classify each session by its average "
-            "heart rate. If the warm colours (Z4–5) dominate, the easy days "
-            "aren't easy enough."
-        )
+    # Track: muted below the 80% target, green at/above it; the marker is this
+    # period's actual easy share, so the goal is to push the marker into green.
+    bar = ui.threshold_bar_html(
+        pct, 100, bands=[(80, ui.BG_2), (100, ui.ACCENT_PR)],
+        vmin=0, marker_color=ui.INK_0,
+    )
+    st.html(
+        f"<div style='padding:14px 16px;background:{ui.BG_1};"
+        f"border:1px solid {ui.LINE};border-radius:10px;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
+        f"<span style='font-size:10px;color:{ui.INK_2};letter-spacing:0.08em;"
+        f"text-transform:uppercase;font-weight:600;'>Easy · Zones 1–2</span>"
+        f"<span style='font-size:24px;font-weight:600;color:{color};"
+        f"font-variant-numeric:tabular-nums;letter-spacing:-0.02em;'>{pct}%"
+        f"<span style='font-size:11px;color:{ui.INK_2};font-weight:400;'> {status}"
+        f"</span></span></div>"
+        f"{bar}"
+        f"<div style='display:flex;justify-content:space-between;font-size:9px;"
+        f"letter-spacing:0.06em;text-transform:uppercase;'>"
+        f"<span style='color:{ui.INK_3};'>below 80%</span>"
+        f"<span style='color:{ui.ACCENT_PR};'>80%+ target</span></div>"
+        f"</div>"
+    )
+    st.caption(
+        "Pyramidal plan: keep ~**80%** of weekly minutes easy. The stacked bars "
+        "below split each week by HR zone — warm colours (Z4–5) are the hard days."
+    )
 
     zm = zm.copy()
     zm["zone_label"] = zm["hr_zone"].apply(lambda z: f"Z{z} {zone_name(z)}")
