@@ -64,6 +64,7 @@ def render(df: pd.DataFrame):
 def _chart_weekly(df: pd.DataFrame):
     wm = weekly_meters(df).copy()
     wm["week"] = _to_day(wm["week"])
+    wm["is_latest"] = wm["week"] == wm["week"].max()
 
     chart = (
         alt.Chart(wm)
@@ -71,6 +72,9 @@ def _chart_weekly(df: pd.DataFrame):
         .encode(
             x=alt.X("week:T", axis=alt.Axis(format="%b %d", title=None, labelAngle=-30, tickCount="day")),
             y=alt.Y("meters:Q", axis=alt.Axis(title=None)),
+            # Latest week at full strength; prior weeks faded, so the current
+            # week reads as the focal point (matches the Trends mockup).
+            opacity=alt.condition("datum.is_latest", alt.value(1.0), alt.value(0.4)),
             tooltip=[
                 alt.Tooltip("week:T", format="%b %d, %Y", title="Week of"),
                 alt.Tooltip("meters:Q", format=",", title="Meters"),
