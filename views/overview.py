@@ -12,7 +12,6 @@ tab, where they belong; the home screen is for "how am I doing right now?"
 import altair as alt
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 import config
 import ui
@@ -87,7 +86,7 @@ def render(df: pd.DataFrame):
     _render_heatmap(df)
 
     # ── Recent ───────────────────────────────────────────────────────────
-    _section_label("Recent", trailing_link="View all in Workouts →", tab_name="Workouts")
+    _section_label("Recent", trailing_link="More in the Workouts tab")
     _render_recent(df.head(6))
 
 
@@ -221,45 +220,28 @@ def _render_next_up(df):
 
 
 def _section_label(text: str, trailing_link: str = None, tab_name: str = None):
-    """Small uppercase section heading with optional right-aligned link.
+    """Small uppercase section heading with an optional right-aligned hint.
 
-    When tab_name is provided the link uses window.parent JS to click the
-    matching Streamlit tab button — the only way to switch tabs programmatically.
-    Uses components.html (which allows JS) instead of st.html (which doesn't).
+    The trailing item is an informational pointer, not a link: Streamlit has
+    no API to switch st.tabs programmatically, and the old window.parent JS
+    hack is blocked on Streamlit Community Cloud (the component iframe is
+    cross-origin, so it can't reach the parent DOM). The five tabs sit at the
+    top of the page, so the hint just names where to go. `tab_name` is kept
+    for call-site compatibility but no longer drives any behavior.
     """
-    if trailing_link and tab_name:
-        js = (
-            f"var tabs=window.parent.document.querySelectorAll('[data-baseweb=\"tab\"]');"
-            f"for(var i=0;i<tabs.length;i++){{"
-            # substring match: tab labels may carry a leading material icon glyph
-            f"if(tabs[i].innerText.indexOf('{tab_name}')>-1){{tabs[i].click();break;}}}}"
+    right = ""
+    if trailing_link:
+        right = (
+            f"<span style='font-size:11px;color:{ui.INK_2};"
+            f"white-space:nowrap;'>{trailing_link}</span>"
         )
-        components.html(
-            f"""
-            <style>
-              body {{ margin: 0; padding: 0; background: transparent; }}
-            </style>
-            <div style="display:flex;justify-content:space-between;align-items:baseline;
-                        padding:20px 4px 8px;
-                        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-              <div style="font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;
-                          text-transform:uppercase;font-weight:600;">{text}</div>
-              <span onclick="{js}"
-                    style="font-size:11px;color:{ui.ACCENT_SEL};cursor:pointer;">
-                {trailing_link}
-              </span>
-            </div>
-            """,
-            height=48,
-        )
-    else:
-        st.html(
-            f"<div style='display:flex;justify-content:space-between;"
-            f"align-items:baseline;margin:20px 4px 8px;'>"
-            f"<div style='font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;"
-            f"text-transform:uppercase;font-weight:600;'>{text}</div>"
-            f"</div>"
-        )
+    st.html(
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:baseline;margin:20px 4px 8px;'>"
+        f"<div style='font-size:10px;color:{ui.INK_2};letter-spacing:0.12em;"
+        f"text-transform:uppercase;font-weight:600;'>{text}</div>"
+        f"{right}</div>"
+    )
 
 
 def _render_heatmap(df: pd.DataFrame):
