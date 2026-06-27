@@ -55,6 +55,19 @@ def render(df: pd.DataFrame):
         st.info("No workout data available.")
         return
 
+    # ── PRs & Rankings | WOD segmented control ───────────────────────────
+    mode = st.segmented_control(
+        "Records section", ["PRs & Rankings", "WOD"],
+        default="PRs & Rankings", key="records_mode",
+        label_visibility="collapsed",
+    ) or "PRs & Rankings"
+
+    if mode == "WOD":
+        from views import wod              # daily-challenge percentile, folded in
+        wod.render(df)
+        return
+
+    # ── PRs & Rankings (existing code below, unchanged) ──────────────────
     dist_prs, timed_prs = compute_prs(df)
 
     # Only look up rankings for events the user has actually completed

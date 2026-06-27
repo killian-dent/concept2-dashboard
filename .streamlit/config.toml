@@ -1,5 +1,26 @@
+# .streamlit/config.toml
+# Theme tuned to the ui.py token system so DEFAULT widgets (selectboxes,
+# buttons, segmented controls, sliders, metric containers, tabs) inherit your
+# palette instead of Streamlit's stock blue/grays.
+
 [theme]
 base = "dark"
+
+# Core keys — supported on all recent Streamlit versions ----------------------
+primaryColor            = "#6aa3e6"  # ACCENT_SEL — selection, primary buttons, focus rings, active tab
+backgroundColor         = "#1c1b18"  # BG_0 — page background
+secondaryBackgroundColor = "#232220" # BG_1 — cards, sidebar, st.metric/container, code blocks, inputs
+textColor               = "#f1efe9"  # INK_0 — primary text
+font                    = "sans serif"
+
+# Newer keys — Streamlit >= ~1.43. Safe to keep; older versions ignore unknown
+# keys. If you see a startup warning about an unrecognized option, comment the
+# offending line out. -------------------------------------------------------
+borderColor          = "#3a3733"     # LINE — input/container hairlines
+linkColor            = "#6aa3e6"     # ACCENT_SEL — matches your inline <a> accents
+codeBackgroundColor  = "#232220"     # BG_1 — inline code / st.code surfaces
+baseRadius           = "8px"         # matches the 8–10px card radius in ui.py
+# headingFont        = "sans serif"  # uncomment to differentiate headings
 
 [server]
 headless = true

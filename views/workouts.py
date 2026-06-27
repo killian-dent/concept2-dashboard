@@ -24,6 +24,19 @@ def render(df: pd.DataFrame):
         st.info("No workout data available.")
         return
 
+    # ── List | Compare segmented control ─────────────────────────────────
+    mode = st.segmented_control(
+        "Workouts view", ["List", "Compare"],
+        default="List", key="workouts_mode",
+        label_visibility="collapsed",
+    ) or "List"
+
+    if mode == "Compare":
+        from views import compare          # niche A/B view, folded in here
+        compare.render(df)
+        return
+
+    # ── List view (everything below is the existing code, unchanged) ─────
     # ── Filter row ───────────────────────────────────────────────────────
     cL, cR = st.columns([3, 2])
     with cL:

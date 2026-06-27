@@ -31,7 +31,9 @@ from config import is_placeholder_token
 from data import load_results_df
 
 import ui
-from views import overview, workouts, trends, records, compare, wod, challenges, plan
+# compare + wod are no longer top-level tabs — they're imported *inside*
+# workouts.py and records.py as segmented sub-views. challenges is removed.
+from views import overview, workouts, trends, records, plan
 
 
 # ── Page config ───────────────────────────────────────────────────────────
@@ -155,18 +157,15 @@ ui.render_header(
 
 
 # ── Tab router ────────────────────────────────────────────────────────────
-tab_overview, tab_plan, tab_workouts, tab_trends, tab_compare, tab_wod, tab_challenges, tab_records = st.tabs(
-    ["Overview", "Plan", "Workouts", "Trends", "Compare", "WOD", "Challenges", "Records"]
+tab_today, tab_plan, tab_workouts, tab_trends, tab_records = st.tabs(
+    ["Today", "Plan", "Workouts", "Trends", "Records"]
 )
 
-with tab_overview:    overview.render(df)
-with tab_plan:        plan.render(df)
-with tab_workouts:    workouts.render(df)
-with tab_trends:      trends.render(df)
-with tab_compare:     compare.render(df)
-with tab_wod:         wod.render(df)
-with tab_challenges:  challenges.render(df)
-with tab_records:     records.render(df)
+with tab_today:      overview.render(df)   # Overview view, re-homed as "Today"
+with tab_plan:       plan.render(df)
+with tab_workouts:   workouts.render(df)   # now hosts List | Compare
+with tab_trends:     trends.render(df)
+with tab_records:    records.render(df)    # now hosts PRs & Rankings | WOD
 
 
 st.caption(
