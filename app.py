@@ -158,7 +158,13 @@ ui.render_header(
 
 # ── Tab router ────────────────────────────────────────────────────────────
 tab_today, tab_plan, tab_workouts, tab_trends, tab_records = st.tabs(
-    ["Today", "Plan", "Workouts", "Trends", "Records"]
+    [
+        ":material/home: Today",
+        ":material/calendar_month: Plan",
+        ":material/format_list_bulleted: Workouts",
+        ":material/bar_chart: Trends",
+        ":material/emoji_events: Records",
+    ]
 )
 
 with tab_today:      overview.render(df)   # Overview view, re-homed as "Today"
