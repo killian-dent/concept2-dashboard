@@ -317,73 +317,108 @@ def _render_zone_distribution(df):
 
 # ── Weekly plan adherence (Mon/Wed/Fri checklist) ────────────────────────
 
+# Session-type accents for the adherence grid (E/I/S), matching overview's
+# _TYPE_ACCENT: easy = green, intervals (the hard day) = amber, steady = blue.
+# Tints are the same hues at low opacity for the "done" cell background.
+_ADHERENCE_CELLS = [
+    ("E", "easy_done",      ui.ACCENT_PR,  "rgba(126,201,122,0.16)"),
+    ("I", "intervals_done", ui.ACCENT_WARN, "rgba(230,184,106,0.16)"),
+    ("S", "steady_done",    ui.ACCENT_SEL, "rgba(106,163,230,0.16)"),
+]
+
+
+def _session_cell(letter, color, tint, done, expected=True):
+    """One M/W/F slot: filled in the session's colour when done, hollow when
+    missed, a dash when not expected (intervals on a recovery week)."""
+    if not expected:
+        bg, col, txt = "transparent", ui.INK_3, "–"
+    elif done:
+        bg, col, txt = tint, color, letter
+    else:
+        bg, col, txt = ui.BG_2, ui.INK_3, letter
+    return (
+        f"<span style='display:inline-flex;align-items:center;"
+        f"justify-content:center;width:22px;height:22px;border-radius:6px;"
+        f"font-size:10px;font-weight:700;background:{bg};color:{col};'>{txt}</span>"
+    )
+
+
+def _adherence_week_row(w, ctx, is_current=False):
+    recovery = ctx.get("recovery", False)
+    when = pd.Timestamp(w["week"]).strftime("%b %d")
+    wk_badge = f"wk {ctx['week_in_block']}" if ctx else ""
+
+    dots = "".join(
+        # intervals aren't expected on a recovery week (Zone 1 only)
+        _session_cell(letter, color, tint, w[flag],
+                      expected=not (recovery and letter == "I"))
+        for letter, flag, color, tint in _ADHERENCE_CELLS
+    )
+
+    if not w["sessions"]:
+        right = f"<span style='font-size:10px;color:{ui.INK_3};'>no sessions</span>"
+    else:
+        easy_pct = round(w["easy_pct"])
+        ecol = ui.ACCENT_PR if easy_pct >= 80 else ui.INK_2
+        rtag = (f"<span style='font-size:9px;color:{ui.ACCENT_WARN};'>recovery · </span>"
+                if recovery else "")
+        right = (f"{rtag}<span style='font-size:11px;color:{ecol};"
+                 f"font-variant-numeric:tabular-nums;'>{easy_pct}% easy</span>")
+
+    rowbg = "rgba(230,184,106,0.06)" if recovery else "transparent"
+    accent = (f"border-left:2px solid {ui.ACCENT_SEL};padding-left:6px;"
+              if is_current else "border-left:2px solid transparent;padding-left:6px;")
+    return (
+        f"<div style='display:grid;grid-template-columns:1fr auto;gap:8px;"
+        f"align-items:center;padding:7px 8px;border-radius:8px;background:{rowbg};"
+        f"margin-bottom:4px;{accent}'>"
+        f"<div style='display:flex;align-items:center;gap:8px;'>"
+        f"<span style='font-size:10px;color:{ui.INK_3};width:30px;"
+        f"font-variant-numeric:tabular-nums;'>{wk_badge}</span>"
+        f"<span style='font-size:11px;color:{ui.INK_2};width:44px;"
+        f"font-variant-numeric:tabular-nums;'>{when}</span>"
+        f"<span style='display:inline-flex;gap:4px;'>{dots}</span></div>"
+        f"{right}</div>"
+    )
+
+
 def _render_adherence(df):
     ui.section_label("Weekly plan adherence")
 
-    weeks = weekly_plan(df, weeks=6)
+    weeks = weekly_plan(df, weeks=8)  # two full 4-week blocks
     if not weeks or all(w["sessions"] == 0 for w in weeks):
         st.caption("No recent sessions to check against the Mon/Wed/Fri plan.")
         return
 
     if config.PLAN_START_DATE is None:
         st.caption(
-            "Easy · Intervals · Steady — the week's three target sessions. "
-            "Set `PLAN_START_DATE` in secrets to also see 4-week cycle and "
+            "Set `PLAN_START_DATE` in secrets to see 4-week block and "
             "recovery-week markers."
         )
 
-    for w in weeks:
-        _render_week_row(w)
+    current_week = weeks[0]["week"]            # weekly_plan is newest-first
+    ordered = list(reversed(weeks))            # render oldest → newest
 
-
-def _render_week_row(w):
-    ctx = plan_week_label(w["week"], config.PLAN_START_DATE)
-    recovery = ctx.get("recovery", False)
-
-    when = pd.Timestamp(w["week"]).strftime("%b %d")
-    block_txt = ""
-    if ctx:
-        block_txt = (f" · Block {ctx['block']} wk {ctx['week_in_block']}"
-                     + (" · recovery" if recovery else ""))
-
-    def chip(label, done, expected=True):
-        if not expected:
-            bg, col, txt = ui.BG_2, ui.INK_3, f"{label} n/a"
-        elif done:
-            bg, col, txt = "rgba(126,201,122,0.15)", ui.ACCENT_PR, f"✓ {label}"
-        else:
-            bg, col, txt = ui.BG_2, ui.INK_3, f"○ {label}"
-        return (f"<span style='display:inline-block;padding:2px 8px;"
-                f"border-radius:99px;background:{bg};color:{col};"
-                f"font-size:10.5px;font-weight:500;margin-right:4px;'>{txt}</span>")
-
-    # Intervals aren't expected on a recovery week (Zone 1 only).
-    chips = (
-        chip("Easy", w["easy_done"])
-        + chip("Intervals", w["intervals_done"], expected=not recovery)
-        + chip("Steady", w["steady_done"])
+    legend = (
+        f"<div style='display:flex;gap:14px;margin:2px 8px 10px;font-size:9.5px;"
+        f"letter-spacing:0.04em;text-transform:uppercase;color:{ui.INK_3};'>"
+        f"<span><b style='color:{ui.ACCENT_PR};'>E</b> easy</span>"
+        f"<span><b style='color:{ui.ACCENT_WARN};'>I</b> intervals</span>"
+        f"<span><b style='color:{ui.ACCENT_SEL};'>S</b> steady</span></div>"
     )
 
-    easy_pct = round(w["easy_pct"])
-    easy_col = ui.ACCENT_PR if easy_pct >= 80 else ui.INK_2
-    easy_badge = (
-        f"<span style='font-size:10.5px;color:{easy_col};"
-        f"font-variant-numeric:tabular-nums;'>{easy_pct}% easy</span>"
-        if w["sessions"] else ""
-    )
+    parts, cur_block = [legend], object()  # sentinel so first block always emits
+    for w in ordered:
+        ctx = plan_week_label(w["week"], config.PLAN_START_DATE)
+        block = ctx.get("block") if ctx else None
+        if block != cur_block:
+            cur_block = block
+            if block is not None:
+                parts.append(
+                    f"<div style='font-size:10px;letter-spacing:0.12em;"
+                    f"text-transform:uppercase;font-weight:600;color:{ui.INK_2};"
+                    f"margin:14px 4px 6px;'>Block {block}</div>"
+                )
+        parts.append(_adherence_week_row(w, ctx, is_current=(w["week"] == current_week)))
 
-    detail = " · ".join(
-        f"{it['day']} {it['label']}" for it in w["items"]
-    ) or "no sessions"
-
-    st.html(f"""
-    <div style="padding:10px 4px;border-bottom:1px solid {ui.LINE};">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;">
-        <div style="font-size:11px;color:{ui.INK_2};font-weight:600;
-                    letter-spacing:0.04em;">Week of {when}{block_txt}</div>
-        {easy_badge}
-      </div>
-      <div style="margin-top:6px;">{chips}</div>
-      <div style="margin-top:5px;font-size:10.5px;color:{ui.INK_3};">{detail}</div>
-    </div>
-    """)
+    st.html("<div>" + "".join(parts) + "</div>")
