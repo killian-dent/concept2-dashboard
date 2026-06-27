@@ -63,6 +63,18 @@ def inject_styles():
             .block-container {{ padding-left: 0.75rem; padding-right: 0.75rem; }}
           }}
 
+          /* Phone-only: pin the 5-tab strip to the bottom (native app idiom).
+             Experimental — depends on Streamlit's internal data-baseweb DOM;
+             degrades gracefully to a top strip if that attribute changes. */
+          @media (max-width: 640px) {{
+            .stTabs [data-baseweb="tab-list"] {{
+              position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+              background: {BG_0}; border-top: 1px solid {LINE};
+              justify-content: space-around; padding: 6px 4px 18px;
+            }}
+            .block-container {{ padding-bottom: 5rem; }}
+          }}
+
           /* Hide Streamlit's default top bar — we render our own header */
           header[data-testid="stHeader"] {{ background: transparent; height: 0; }}
           [data-testid="stToolbar"] {{ display: none; }}
