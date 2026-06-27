@@ -122,7 +122,7 @@ def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool,
             unsafe_allow_html=True,
         )
     with cR:
-        with st.popover(f"👤  {user_id}", use_container_width=True):
+        with st.popover(f"👤  {user_id}", width="stretch"):
             st.caption("Track a Concept2 user")
             new_id = None
             if known_users:
@@ -153,7 +153,7 @@ def render_header(user_id: str, on_change, on_refresh, is_placeholder: bool,
                 on_change(new_id)
             st.caption('Numeric ID, or `"me"` for your own account.')
             st.divider()
-            if st.button("🔄  Refresh data", use_container_width=True,
+            if st.button("🔄  Refresh data", width="stretch",
                          help="Check Concept2 for new workouts now"):
                 on_refresh()
 
@@ -314,7 +314,7 @@ def altair_theme(chart):
     """Apply the dark palette to any Altair chart.
 
     Call as the last step before st.altair_chart():
-        st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+        st.altair_chart(ui.altair_theme(chart), width="stretch")
     """
     return (
         chart

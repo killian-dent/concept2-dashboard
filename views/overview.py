@@ -279,7 +279,7 @@ def _render_heatmap(df: pd.DataFrame):
         )
         .configure_view(strokeWidth=0)
     )
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(chart, width="stretch")
 
 
 def _render_recent(rows: pd.DataFrame):

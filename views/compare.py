@@ -173,7 +173,7 @@ def _render_overlay(a, b):
         + base.mark_point(filled=True, size=50)
     ).properties(height=290)
 
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 def _render_split_table(a, b):

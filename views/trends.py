@@ -82,7 +82,7 @@ def _chart_weekly(df: pd.DataFrame):
         )
         .properties(height=320)
     )
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 def _chart_pace(df: pd.DataFrame):
@@ -132,7 +132,7 @@ def _chart_pace(df: pd.DataFrame):
         + base.mark_point(color=ui.ACCENT_SEL, filled=True, size=50)
     ).properties(height=320)
 
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 def _chart_spm(df: pd.DataFrame):
@@ -159,7 +159,7 @@ def _chart_spm(df: pd.DataFrame):
         .resolve_scale(y="shared")
         .properties(height=320)
     )
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 def _chart_hr(df: pd.DataFrame):
@@ -194,4 +194,4 @@ def _chart_hr(df: pd.DataFrame):
         .resolve_scale(y="shared")
         .properties(height=320)
     )
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")

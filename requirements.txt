@@ -1,4 +1,7 @@
-streamlit>=1.35.0
+# Pinned to the 1.58 minor: prod (Streamlit Cloud) was floating to latest, which
+# changed st.html SVG sanitizing + the width API out from under us. ~= allows
+# 1.58.x patches but not 1.59+. Bump deliberately after testing on the deployed app.
+streamlit~=1.58.0
 plotly>=5.22.0
 pandas>=2.2.0
 requests>=2.31.0

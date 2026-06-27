@@ -109,7 +109,7 @@ def _render_export(df: pd.DataFrame, work: pd.DataFrame):
             st.download_button(
                 "Download ZIP", st.session_state["_export_zip"],
                 file_name="concept2_export.zip", mime="application/zip",
-                use_container_width=True,
+                width="stretch",
             )
 
 
@@ -292,7 +292,7 @@ def _render_detail(row: pd.Series):
             .encode(x=x_enc, y=y_enc, text="fmt:N", color=color_enc)
         )
         chart = (bars + labels).properties(height=280)
-        st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+        st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 # ── Per-stroke HR analysis (trace · time-in-zone · decoupling) ───────────
@@ -351,7 +351,7 @@ def _render_hr_analysis(row: pd.Series):
     )
     layers = [l for l in (band_layer, line) if l is not None]
     chart = alt.layer(*layers).properties(height=200)
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
     _render_time_in_zone(strokes)
     _render_decoupling(row, strokes)
@@ -404,7 +404,7 @@ def _render_time_in_zone(strokes: list):
                      alt.Tooltip("pct:Q", format=".0f", title="%")],
         ).properties(height=24 * len(rows) + 20)
     )
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 def _render_decoupling(row: pd.Series, strokes: list):

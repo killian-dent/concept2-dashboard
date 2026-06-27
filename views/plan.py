@@ -135,7 +135,7 @@ def _render_efficiency(df: pd.DataFrame):
     )
 
     chart = (target + line + pts + trend).properties(height=320)
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 # ── Phase readiness (the "should I advance to Phase 2?" gate) ─────────────
@@ -258,7 +258,7 @@ def _render_zone_distribution(df):
         )
         .properties(height=260)
     )
-    st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+    st.altair_chart(ui.altair_theme(chart), width="stretch")
 
 
 # ── Weekly plan adherence (Mon/Wed/Fri checklist) ────────────────────────
