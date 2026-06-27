@@ -12,6 +12,7 @@ Public API:
   kpi_cell(label, value, …) — one tile of the Overview KPI quadrant
   kpi_grid(cells)           — wrap 4 cells in a 2×2 grid (HTML)
   percentile_bar_html(…)    — used by WOD list rows
+  threshold_bar_html(…)     — zoned track + marker (e.g. phase-readiness gate)
   sparkline_html(values)    — SVG sparkline as a base64 <img> data URI
 """
 import base64
@@ -305,6 +306,37 @@ def progress_bar_html(pct: float, color: str = None, height: int = 8) -> str:
         f'border-radius:99px;overflow:hidden;margin:8px 0 4px;">'
         f'<div style="width:{pct:.1f}%;height:100%;background:{color};'
         f'border-radius:99px;"></div></div>'
+    )
+
+
+def threshold_bar_html(value: float, vmax: float, bands: list,
+                       vmin: float = 0.0, height: int = 10,
+                       marker_color: str = None) -> str:
+    """
+    Horizontal track split into colored zones with a marker at ``value``.
+
+    ``bands`` is an ascending list of ``(upper, color)``: each zone runs from
+    the previous upper (or ``vmin``) to ``upper``. Use it to show where a value
+    sits across labelled thresholds (e.g. the phase-readiness gate). Pure
+    HTML/CSS — no SVG — so it renders through st.html's sanitizer unchanged.
+    """
+    span = (vmax - vmin) or 1
+    marker_color = marker_color or INK_0
+    segs, prev = [], vmin
+    for upper, color in bands:
+        upper = min(upper, vmax)
+        w = max(0.0, (upper - prev) / span * 100)
+        if w > 0:
+            segs.append(f'<div style="width:{w:.2f}%;background:{color};"></div>')
+        prev = upper
+    pos = max(0.0, min(1.0, (value - vmin) / span)) * 100
+    return (
+        f'<div style="position:relative;margin:9px 0;">'
+        f'<div style="display:flex;height:{height}px;border-radius:99px;'
+        f'overflow:hidden;">{"".join(segs)}</div>'
+        f'<div style="position:absolute;left:{pos:.2f}%;top:-3px;'
+        f'height:{height + 6}px;width:2px;background:{marker_color};'
+        f'transform:translateX(-1px);border-radius:2px;"></div></div>'
     )
 
 

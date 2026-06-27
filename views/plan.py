@@ -173,35 +173,61 @@ def _render_readiness(df: pd.DataFrame):
     color, verdict, detail = {
         "ready": (
             ui.ACCENT_PR, "Ready to advance",
-            "Easy-day HR is well-coupled — the aerobic base is solid. If the "
-            "120-bpm split has also clearly dropped, advance to Phase 2 "
-            "(intensity).",
+            "Aerobic base is solid — if the 120-bpm split has dropped too, "
+            "advance to Phase 2.",
         ),
         "developing": (
             ui.ACCENT_WARN, "Base developing",
-            "Coupling is improving but not there yet. Hold another 4-week block "
-            "of disciplined Zone 2, then re-check.",
+            "Coupling is improving. Hold another 4-week Zone-2 block, then "
+            "re-check.",
         ),
         "base": (
             ui.ACCENT_SEL, "Keep building base",
-            "Easy-day HR still drifts up — most of the aerobic-base work is "
-            "still ahead. Stay in Phase 1.",
+            "Easy-day HR still drifts up — stay in Phase 1 and keep building.",
         ),
     }[status]
 
+    # Zoned gate: green (ready) → amber (developing) → blue (keep building).
+    # Lower drift is better, so green sits on the left and the marker shows
+    # where this block's median decoupling lands across the gate.
+    ready_pct = READINESS_READY_PCT
+    dev_pct = READINESS_DEVELOPING_PCT
+    bar_min = min(0.0, med)
+    bar_max = max(dev_pct * 1.8, med * 1.15, ready_pct * 3)
+    bar = ui.threshold_bar_html(
+        med, bar_max,
+        bands=[(ready_pct, ui.ACCENT_PR),
+               (dev_pct, ui.ACCENT_WARN),
+               (bar_max, ui.ACCENT_SEL)],
+        vmin=bar_min, marker_color=ui.INK_0,
+    )
+    sess = f"last {r['n']} easy session{'s' if r['n'] != 1 else ''}"
+
     st.html(
-        f"<div style='display:flex;align-items:baseline;gap:10px;'>"
-        f"<span style='font-size:13px;font-weight:600;color:{color};'>"
-        f"{verdict}</span>"
-        f"<span style='font-size:12px;color:{ui.INK_2};"
-        f"font-variant-numeric:tabular-nums;'>median drift "
-        f"<b style='color:{color};'>{med:+.1f}%</b> · last {r['n']} easy "
-        f"session{'s' if r['n'] != 1 else ''}</span></div>"
-        f"<div style='margin-top:4px;font-size:11px;color:{ui.INK_3};'>{detail}</div>"
-        f"<div style='margin-top:3px;font-size:10.5px;color:{ui.INK_3};'>"
-        f"Gate: &lt;{READINESS_READY_PCT:.0f}% ready · "
-        f"{READINESS_READY_PCT:.0f}–{READINESS_DEVELOPING_PCT:.0f}% developing · "
-        f"&gt;{READINESS_DEVELOPING_PCT:.0f}% keep building.</div>"
+        f"<div style='padding:14px 16px;background:{ui.BG_1};"
+        f"border:1px solid {ui.LINE};border-radius:10px;'>"
+        # verdict + headline drift number
+        f"<div style='display:flex;justify-content:space-between;"
+        f"align-items:baseline;'>"
+        f"<span style='font-size:15px;font-weight:600;color:{color};'>{verdict}</span>"
+        f"<span style='font-size:20px;font-weight:600;color:{color};"
+        f"font-variant-numeric:tabular-nums;letter-spacing:-0.02em;'>"
+        f"{med:+.1f}%<span style='font-size:11px;color:{ui.INK_2};"
+        f"font-weight:400;'> drift</span></span></div>"
+        # the gate bar
+        f"{bar}"
+        # zone labels under the bar
+        f"<div style='display:flex;justify-content:space-between;"
+        f"font-size:9px;letter-spacing:0.06em;text-transform:uppercase;'>"
+        f"<span style='color:{ui.ACCENT_PR};'>ready &lt;{ready_pct:.0f}%</span>"
+        f"<span style='color:{ui.ACCENT_WARN};'>developing</span>"
+        f"<span style='color:{ui.ACCENT_SEL};'>building &gt;{dev_pct:.0f}%</span>"
+        f"</div>"
+        # one trimmed line of guidance + session count
+        f"<div style='margin-top:9px;font-size:11.5px;color:{ui.INK_1};"
+        f"line-height:1.45;'>{detail}</div>"
+        f"<div style='margin-top:3px;font-size:10px;color:{ui.INK_3};'>{sess}</div>"
+        f"</div>"
     )
 
 
