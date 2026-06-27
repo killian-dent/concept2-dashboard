@@ -122,11 +122,14 @@ def _render_aerobic_hero(eff):
     improved = s["improved_s"]
     faster = improved > 0
     delta_color = ui.ACCENT_PR if faster else ui.ACCENT_WARN
-    delta_txt = (f"{'−' if faster else '+'}{abs(improved):.1f}s since start"
-                 if abs(improved) >= 0.1 else "holding steady")
+    if abs(improved) >= 0.1:
+        arrow = "↓" if faster else "↑"  # lower pace = faster = down
+        delta_txt = f"{arrow} {abs(improved):.1f}s {'faster' if faster else 'slower'} since start"
+    else:
+        delta_txt = "holding steady"
     # Lower pace is better, so a downward sparkline = improvement → green.
     spark_html = ui.sparkline_html(spark, width=120, height=22,
-                                   color=delta_color)
+                                   color=delta_color, fill=True)
 
     st.html(
         f"""
@@ -134,7 +137,7 @@ def _render_aerobic_hero(eff):
                     border:1px solid {ui.LINE};border-radius:10px;
                     display:flex;justify-content:space-between;align-items:center;">
           <div>
-            <div style="font-size:10px;color:{ui.INK_2};letter-spacing:0.1em;
+            <div style="font-size:10px;color:{delta_color};letter-spacing:0.1em;
                         text-transform:uppercase;font-weight:600;">
               Aerobic efficiency · easy pace @ {cap} bpm</div>
             <div style="font-size:30px;font-weight:600;letter-spacing:-0.02em;
@@ -228,7 +231,8 @@ def _section_label(text: str, trailing_link: str = None, tab_name: str = None):
         js = (
             f"var tabs=window.parent.document.querySelectorAll('[data-baseweb=\"tab\"]');"
             f"for(var i=0;i<tabs.length;i++){{"
-            f"if(tabs[i].innerText.trim()==='{tab_name}'){{tabs[i].click();break;}}}}"
+            # substring match: tab labels may carry a leading material icon glyph
+            f"if(tabs[i].innerText.indexOf('{tab_name}')>-1){{tabs[i].click();break;}}}}"
         )
         components.html(
             f"""

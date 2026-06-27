@@ -243,9 +243,14 @@ def percentile_bar_html(rank: int, field: int, height: int = 6) -> str:
 # ── Sparkline ────────────────────────────────────────────────────────────
 
 def sparkline_html(values: list, width: int = 64, height: int = 18,
-                   color: str = None, label: str = "trend") -> str:
+                   color: str = None, label: str = "trend",
+                   fill: bool = False) -> str:
     """
     Simple SVG sparkline. Values are oldest→newest. < 2 values renders empty.
+
+    When ``fill`` is True, a faint area is drawn under the line (the
+    filled-gradient look from the hi-fi mockups). The stroke is inset by
+    ~1px top/bottom so it isn't clipped at the SVG edges.
     """
     color = color or ACCENT_SEL
     if not values or len(values) < 2:
@@ -254,14 +259,23 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
     vmin, vmax = min(values), max(values)
     span = (vmax - vmin) or 1
     step = width / (len(values) - 1)
+    pad = 1.0  # keep the 1.4px stroke off the top/bottom edges
+    plot_h = height - 2 * pad
     pts = " ".join(
-        f"{i * step:.1f},{height - (v - vmin) / span * height:.1f}"
+        f"{i * step:.1f},{pad + (1 - (v - vmin) / span) * plot_h:.1f}"
         for i, v in enumerate(values)
     )
+    area = ""
+    if fill:
+        area = (
+            f'<polygon points="0,{height} {pts} {width:.1f},{height}" '
+            f'fill="{color}" fill-opacity="0.14" stroke="none"/>'
+        )
     return (
         f'<svg width="{width}" height="{height}" role="img" '
         f'aria-label="{label} sparkline, {len(values)} points" '
         f'style="display:inline-block;vertical-align:middle;">'
+        f'{area}'
         f'<polyline points="{pts}" fill="none" stroke="{color}" '
         f'stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>'
         f'</svg>'
