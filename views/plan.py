@@ -14,12 +14,16 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+import api
 import config
 import ui
 from data import format_pace, zone_name
 from data_extras import (aerobic_efficiency, aerobic_efficiency_summary,
                           weekly_zone_minutes, easy_ratio,
-                          weekly_plan, plan_week_label)
+                          weekly_plan, plan_week_label,
+                          recent_easy_steady, readiness_from_decoupling,
+                          decoupling, READINESS_READY_PCT,
+                          READINESS_DEVELOPING_PCT)
 
 # The plan's illustrative target band for the easy-day split at 120 bpm.
 _TARGET_FAST_S = 150  # 2:30
@@ -38,6 +42,7 @@ def render(df: pd.DataFrame):
     )
 
     _render_efficiency(df)
+    _render_readiness(df)
     _render_zone_distribution(df)
     _render_adherence(df)
 
@@ -131,6 +136,73 @@ def _render_efficiency(df: pd.DataFrame):
 
     chart = (target + line + pts + trend).properties(height=320)
     st.altair_chart(ui.altair_theme(chart), use_container_width=True)
+
+
+# ── Phase readiness (the "should I advance to Phase 2?" gate) ─────────────
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def _easy_decoupling_pcts(uid: str, ids: tuple) -> list:
+    """Decoupling % for each easy session id, via the per-stroke series.
+
+    Cached by (uid, ids) so flipping tabs doesn't re-fetch strokes. Sessions
+    without enough usable stroke data are simply skipped.
+    """
+    out = []
+    for rid in ids:
+        dec = decoupling(api.cached_strokes(uid, int(rid)))
+        if dec:
+            out.append(dec["pct"])
+    return out
+
+
+def _render_readiness(df: pd.DataFrame):
+    sessions = recent_easy_steady(df, n=3)
+    if not sessions:
+        return  # no qualifying easy steady rows yet — stay quiet
+
+    uid = str(st.session_state.get("user_id", "me"))
+    pcts = _easy_decoupling_pcts(uid, tuple(s["id"] for s in sessions))
+    r = readiness_from_decoupling(pcts)
+    if r["status"] == "unknown":
+        return  # easy sessions exist but none had usable stroke data
+
+    ui.section_label("Phase readiness · easy-day decoupling")
+
+    status = r["status"]
+    med = r["median_pct"]
+    color, verdict, detail = {
+        "ready": (
+            ui.ACCENT_PR, "Ready to advance",
+            "Easy-day HR is well-coupled — the aerobic base is solid. If the "
+            "120-bpm split has also clearly dropped, advance to Phase 2 "
+            "(intensity).",
+        ),
+        "developing": (
+            ui.ACCENT_WARN, "Base developing",
+            "Coupling is improving but not there yet. Hold another 4-week block "
+            "of disciplined Zone 2, then re-check.",
+        ),
+        "base": (
+            ui.ACCENT_SEL, "Keep building base",
+            "Easy-day HR still drifts up — most of the aerobic-base work is "
+            "still ahead. Stay in Phase 1.",
+        ),
+    }[status]
+
+    st.html(
+        f"<div style='display:flex;align-items:baseline;gap:10px;'>"
+        f"<span style='font-size:13px;font-weight:600;color:{color};'>"
+        f"{verdict}</span>"
+        f"<span style='font-size:12px;color:{ui.INK_2};"
+        f"font-variant-numeric:tabular-nums;'>median drift "
+        f"<b style='color:{color};'>{med:+.1f}%</b> · last {r['n']} easy "
+        f"session{'s' if r['n'] != 1 else ''}</span></div>"
+        f"<div style='margin-top:4px;font-size:11px;color:{ui.INK_3};'>{detail}</div>"
+        f"<div style='margin-top:3px;font-size:10.5px;color:{ui.INK_3};'>"
+        f"Gate: &lt;{READINESS_READY_PCT:.0f}% ready · "
+        f"{READINESS_READY_PCT:.0f}–{READINESS_DEVELOPING_PCT:.0f}% developing · "
+        f"&gt;{READINESS_DEVELOPING_PCT:.0f}% keep building.</div>"
+    )
 
 
 # ── Weekly intensity distribution (the 80/20 pyramid check) ──────────────

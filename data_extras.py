@@ -367,6 +367,60 @@ def decoupling(strokes: list) -> dict:
     }
 
 
+# ── Phase readiness (the "should I advance to Phase 2?" gate) ──────────────
+# Easy-day decoupling thresholds from the plan summary's "When to Advance to
+# Phase 2": <5% = aerobic base solid (ready); 5-10% = developing (hold a block);
+# >10% = aerobic deficiency (stay in base). See rowing-plan-summary.md.
+READINESS_READY_PCT = 5.0
+READINESS_DEVELOPING_PCT = 10.0
+
+
+def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,
+                       hr_hi: int = 126, min_minutes: int = 20) -> list:
+    """Most-recent easy Zone-2 steady sessions suitable for a drift check.
+
+    Same easy-session filter as aerobic_efficiency (avg HR ~Zone 2, not interval
+    work) but requires enough duration to show meaningful cardiac drift and
+    returns the newest `n` as [{id, date}] newest-first. These are the sessions
+    whose decoupling feeds the phase-readiness gate.
+    """
+    if df is None or df.empty:
+        return []
+    sub = df[
+        (df["hr_avg"] >= hr_lo)
+        & (df["hr_avg"] <= hr_hi)
+        & (df["category"] != "Interval")
+        & (df["pace_s"] > 0)
+        & (df["time_s"] >= min_minutes * 60)
+    ]
+    if sub.empty:
+        return []
+    sub = sub.sort_values("date", ascending=False).head(n)
+    return [{"id": int(r["id"]), "date": r["date"]} for _, r in sub.iterrows()]
+
+
+def readiness_from_decoupling(pcts: list) -> dict:
+    """Classify aerobic-base readiness from recent easy-day decoupling values.
+
+    `pcts`: decoupling percentages (positive = efficiency dropped in the back
+    half). Uses the median so a single ragged session doesn't flip the verdict.
+    Returns {status, median_pct, n} with status in
+    {ready, developing, base, unknown}.
+    """
+    vals = [p for p in (pcts or []) if p is not None]
+    if not vals:
+        return {"status": "unknown", "median_pct": None, "n": 0}
+    import statistics
+    med = statistics.median(vals)
+    if med < READINESS_READY_PCT:
+        status = "ready"
+    elif med < READINESS_DEVELOPING_PCT:
+        status = "developing"
+    else:
+        status = "base"
+    return {"status": status, "median_pct": med, "n": len(vals)}
+
+
 def time_in_zone_from_strokes(strokes: list) -> dict:
     """Seconds spent in each HR zone, from a per-stroke series.
 
