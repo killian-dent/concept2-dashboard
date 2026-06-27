@@ -272,8 +272,8 @@ def plan_week_label(week_start, plan_start) -> dict:
     """Block/recovery context for a week given the plan start date.
 
     Returns {} when plan_start is None. Otherwise {block, week_in_block,
-    recovery}: 1-based week index within the current 6-week block and whether
-    it's a recovery week (every 4th week).
+    recovery}: 1-based week index within the current 4-week cycle and whether
+    it's a recovery week (the cycle's 4th week). Blocks end on recovery weeks.
     """
     if plan_start is None:
         return {}

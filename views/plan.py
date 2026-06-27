@@ -202,7 +202,7 @@ def _render_adherence(df):
     if config.PLAN_START_DATE is None:
         st.caption(
             "Easy · Intervals · Steady — the week's three target sessions. "
-            "Set `PLAN_START_DATE` in secrets to also see 6-week block and "
+            "Set `PLAN_START_DATE` in secrets to also see 4-week cycle and "
             "recovery-week markers."
         )
 
