@@ -18,7 +18,16 @@ import config
 import ui
 from data import format_pace
 from data_extras import (compute_period_kpis, daily_meters,
-                          aerobic_efficiency, aerobic_efficiency_summary)
+                          aerobic_efficiency, aerobic_efficiency_summary,
+                          next_workout)
+
+# Session type → accent colour for the "Next up" card.
+_TYPE_ACCENT = {
+    "easy":     ui.ACCENT_PR,    # green
+    "interval": ui.ACCENT_WARN,  # amber — the hard day
+    "steady":   ui.ACCENT_SEL,   # blue
+    "recovery": ui.INK_2,        # muted — take it easy
+}
 
 
 def render(df: pd.DataFrame):
@@ -26,8 +35,8 @@ def render(df: pd.DataFrame):
         st.info("No workout data available.")
         return
 
-    # ── Aerobic efficiency hero (the plan's headline metric) ─────────────
-    _render_aerobic_hero(df)
+    # ── Aerobic efficiency hero + "Next up" card ─────────────────────────
+    _render_hero_row(df)
 
     # ── KPI quadrant ─────────────────────────────────────────────────────
     k = compute_period_kpis(df, days=30)
@@ -84,16 +93,29 @@ def render(df: pd.DataFrame):
 
 # ── Helpers ──────────────────────────────────────────────────────────────
 
-def _render_aerobic_hero(df):
-    """Full-width hero for the plan's success metric: easy pace at a fixed HR.
+def _render_hero_row(df):
+    """Top of the home screen: aerobic-efficiency hero and the 'Next up' card.
 
-    Renders nothing if there aren't enough easy aerobic sessions yet, so the
-    home screen stays clean until the plan has data to show.
+    Side by side once there's enough easy data for the hero; before then the
+    Next-up card (which is plan-driven, not history-driven) goes full width.
     """
     cap = config.EASY_HR_CAP
     eff = aerobic_efficiency(df, cap=cap)
-    if eff.empty or len(eff) < 2:
-        return
+    has_hero = (not eff.empty) and len(eff) >= 2
+
+    if has_hero:
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            _render_aerobic_hero(eff)
+        with c2:
+            _render_next_up(df)
+    else:
+        _render_next_up(df)
+
+
+def _render_aerobic_hero(eff):
+    """Hero card for the plan's success metric: easy pace at a fixed HR."""
+    cap = config.EASY_HR_CAP
     s = aerobic_efficiency_summary(eff)
     spark = eff["norm_pace_s"].tolist()
 
@@ -129,6 +151,69 @@ def _render_aerobic_hero(df):
           </div>
         </div>
         """
+    )
+
+
+def _uppercase_label(text: str) -> str:
+    return (f"<div style='font-size:10px;color:{ui.INK_2};letter-spacing:0.1em;"
+            f"text-transform:uppercase;font-weight:600;'>{text}</div>")
+
+
+def _session_block(sess: dict, compact: bool = False) -> str:
+    """HTML for one planned session: dotted title, summary lines, and (when not
+    compact) the goal and block label."""
+    accent = _TYPE_ACCENT.get(sess["type"], ui.ACCENT_SEL)
+    size = "13" if compact else "15"
+    out = (
+        f"<div style='font-size:{size}px;font-weight:600;color:{ui.INK_0};"
+        f"margin-top:{'4' if compact else '6'}px;'>"
+        f"<span style='color:{accent};'>●</span> {sess['title']}</div>"
+        f"<div style='font-size:11.5px;color:{ui.INK_1};margin-top:4px;"
+        f"line-height:1.5;font-variant-numeric:tabular-nums;'>"
+        + "<br>".join(sess["lines"]) + "</div>"
+    )
+    if not compact:
+        out += (f"<div style='font-size:11px;color:{ui.INK_2};margin-top:8px;"
+                f"line-height:1.45;'>{sess['goal']}</div>")
+        if sess.get("block_label"):
+            out += (f"<div style='font-size:10px;color:{ui.INK_3};margin-top:8px;"
+                    f"letter-spacing:0.04em;'>{sess['block_label']}</div>")
+    return out
+
+
+def _render_next_up(df):
+    """Plan-driven 'Next up' card: today's session, or the next one, or — on a
+    rest day — the rest/strength note with the upcoming erg session beneath."""
+    nu = next_workout(df)
+    sess = nu["session"]
+
+    if nu["mode"] == "rest":
+        if nu["rest_strength"]:
+            note = (f"<div style='font-size:11.5px;color:{ui.INK_1};margin-top:6px;'>"
+                    f"Optional strength: "
+                    f"<span style='color:{ui.INK_0};'>{nu['rest_strength']}</span></div>")
+        else:
+            note = (f"<div style='font-size:11.5px;color:{ui.INK_2};margin-top:6px;'>"
+                    f"Full rest — let the work absorb.</div>")
+        body = (
+            _uppercase_label(f"Today · {nu['today_label']} — rest from erg")
+            + note
+            + f"<div style='border-top:1px solid {ui.LINE};margin-top:11px;'></div>"
+            + f"<div style='margin-top:9px;'>"
+            + _uppercase_label(f"Next erg · {nu['when_label']}")
+            + _session_block(sess, compact=True) + "</div>"
+        )
+    else:
+        head = "Today" if nu["is_today"] else f"Next up · {nu['when_label']}"
+        body = _uppercase_label(head)
+        if nu["today_done"]:
+            body += (f"<div style='font-size:10.5px;color:{ui.ACCENT_PR};"
+                     f"margin-top:2px;'>✓ today's session logged</div>")
+        body += _session_block(sess, compact=False)
+
+    st.html(
+        f"<div style='padding:14px 16px;background:{ui.BG_1};"
+        f"border:1px solid {ui.LINE};border-radius:10px;height:100%;'>{body}</div>"
     )
 
 

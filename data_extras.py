@@ -291,6 +291,125 @@ def plan_week_label(week_start, plan_start) -> dict:
     return {"block": block, "week_in_block": week_in_block, "recovery": recovery}
 
 
+# ── "Next up" — the next planned session for the Overview card ─────────────
+# Mon/Wed/Fri plan: day-of-week (Mon=0) → session type.
+_PLAN_DOW = {0: "easy", 2: "interval", 4: "steady"}
+# Optional strength pairing on rest days (from the plan's Tonal section).
+_REST_STRENGTH = {1: "upper-body push/pull", 3: "core + lower body"}
+
+
+def _zone_bounds() -> dict:
+    """Zone number → (low_bpm, high_bpm) from the live config HR model."""
+    return {zz[0]: (zz[2], zz[3]) for zz in config.HR_ZONES}
+
+
+def _build_session(d, plan_start) -> dict:
+    """Structured spec for the planned session on a Mon/Wed/Fri date `d`.
+
+    Durations are block-aware (they grow in block 2+); HR targets come from the
+    live config zone model so they track MAX_HR / EASY_HR_CAP. Recovery weeks
+    override every day with a short Zone-1 session (no intervals).
+    """
+    stype = _PLAN_DOW[d.weekday()]
+    ctx = plan_week_label(d, plan_start)
+    block = ctx.get("block")
+    wib = ctx.get("week_in_block")
+    recovery = ctx.get("recovery", False)
+    block_label = (f"Block {block} · wk {wib}" if block else None)
+
+    cap = config.EASY_HR_CAP
+    z = _zone_bounds()
+
+    if recovery:
+        return {"type": "recovery", "title": "Recovery · Zone 1",
+                "lines": ["20 min · no rest",
+                          f"HR < {z[1][1]} bpm (Zone 1)", "18–20 spm"],
+                "goal": "Active recovery only — smooth and easy. No intervals, "
+                        "no Zone 3. Arrive at next block genuinely fresh.",
+                "block_label": (block_label + " · recovery") if block_label else None,
+                "recovery": True}
+
+    if stype == "easy":
+        dur = 40 if (block and block >= 2) else 35
+        return {"type": "easy", "title": "Easy · Long Aerobic",
+                "lines": [f"{dur} min · no rest",
+                          f"HR < {cap} bpm (Zone 2)", "20–22 spm"],
+                "goal": f"Hold HR under {cap} the whole row — don't chase a "
+                        "split. The week's most important session.",
+                "block_label": block_label, "recovery": False}
+
+    if stype == "steady":
+        dur = 35 if (block and block >= 2) else 30
+        return {"type": "steady", "title": "Steady Aerobic",
+                "lines": [f"{dur} min · no rest",
+                          f"HR {z[3][0]}–{z[3][1]} bpm (Zone 3)", "22–24 spm"],
+                "goal": "Conversational but firm — short sentences only. "
+                        "Controlled, not hard.",
+                "block_label": block_label, "recovery": False}
+
+    # interval
+    reps = "7 × 1:00 or 6 × 1:15" if (block and block >= 3) else "6 × 1:00"
+    return {"type": "interval", "title": "Intervals",
+            "lines": ["5 min warmup", f"{reps} (work / 1:30 easy)",
+                      "5 min cooldown", f"Work HR Zone 4 ({z[4][0]}–{z[4][1]})"],
+            "goal": "Work intervals genuinely hard (Zone 4 tagging 5); back off "
+                    "fully on recoveries. The one hard day — make it count.",
+            "block_label": block_label, "recovery": False}
+
+
+def _next_plan_day(from_date, inclusive: bool):
+    """Next date that is a Mon/Wed/Fri, searching from `from_date`."""
+    for i in range(0 if inclusive else 1, 8):
+        cand = from_date + pd.Timedelta(days=i)
+        if cand.weekday() in _PLAN_DOW:
+            return cand
+    return from_date  # unreachable (a plan day occurs within any 7-day window)
+
+
+def next_workout(df: pd.DataFrame, now=None) -> dict:
+    """What the Overview 'Next up' card should show.
+
+    Returns {mode, today_label, is_today, today_done, when_label, session,
+    rest_strength}:
+      • mode "session" — today is a workout day not yet logged (is_today=True),
+        or the next upcoming session if today's is already done / today is past.
+      • mode "rest" — today is a rest day; `session` is the next erg session
+        shown beneath the rest note, and `rest_strength` is the optional pairing.
+    Schedule-aware via config.PLAN_START_DATE; falls back to block-1 baselines
+    (no recovery/block context) when no plan start date is set.
+    """
+    plan_start = config.PLAN_START_DATE
+    today = (pd.Timestamp(now) if now is not None else pd.Timestamp.now()).normalize()
+    dow = int(today.weekday())
+    today_label = today.strftime("%a")
+
+    # Done-detection at day granularity: did anything get logged today?
+    today_done = False
+    if df is not None and not df.empty:
+        logged = set(_utc(df["date"]).dt.tz_localize(None).dt.normalize())
+        today_done = today in logged
+
+    is_workout_today = dow in _PLAN_DOW
+
+    if is_workout_today and not today_done:
+        return {"mode": "session", "today_label": today_label, "is_today": True,
+                "today_done": False, "when_label": "Today",
+                "session": _build_session(today, plan_start), "rest_strength": None}
+
+    if is_workout_today and today_done:
+        nxt = _next_plan_day(today, inclusive=False)
+        return {"mode": "session", "today_label": today_label, "is_today": False,
+                "today_done": True, "when_label": nxt.strftime("%a %b %d"),
+                "session": _build_session(nxt, plan_start), "rest_strength": None}
+
+    # Rest day.
+    nxt = _next_plan_day(today, inclusive=False)
+    return {"mode": "rest", "today_label": today_label, "is_today": False,
+            "today_done": today_done, "when_label": nxt.strftime("%a %b %d"),
+            "session": _build_session(nxt, plan_start),
+            "rest_strength": _REST_STRENGTH.get(dow)}
+
+
 # ── Weekly HR-zone distribution (the 80/20 pyramid check) ─────────────────
 
 def weekly_zone_minutes(df: pd.DataFrame, days: int = 84) -> pd.DataFrame:
