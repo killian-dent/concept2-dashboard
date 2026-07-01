@@ -323,18 +323,24 @@ def _render_hr_analysis(row: pd.Series):
 
     # Faint zone bands behind the HR trace, clipped to the data's HR range.
     hr_lo, hr_hi = pts["hr"].min() - 4, pts["hr"].max() + 4
+    t_lo, t_hi = pts["t_min"].min(), pts["t_min"].max()
+    x_scale = alt.Scale(domain=[t_lo, t_hi])
+    y_scale = alt.Scale(domain=[hr_lo, hr_hi])
+
     bands = []
     for z, name, lo, hi in config.HR_ZONES:
         b_lo, b_hi = max(lo, hr_lo), min(hi, hr_hi)
         if b_hi > b_lo:
             bands.append({"lo": b_lo, "hi": b_hi, "zone": f"Z{z}",
-                          "color": ui.zone_color(z)})
+                          "color": ui.zone_color(z),
+                          "x": t_lo, "x2": t_hi})
     band_df = pd.DataFrame(bands)
 
     band_layer = (
         alt.Chart(band_df).mark_rect(opacity=0.13).encode(
-            y=alt.Y("lo:Q", scale=alt.Scale(domain=[hr_lo, hr_hi]),
-                    axis=alt.Axis(title="bpm")),
+            x=alt.X("x:Q", scale=x_scale, axis=alt.Axis(title="min")),
+            x2="x2:Q",
+            y=alt.Y("lo:Q", scale=y_scale, axis=alt.Axis(title="bpm")),
             y2="hi:Q",
             color=alt.Color("color:N", scale=None, legend=None),
         )
@@ -342,9 +348,8 @@ def _render_hr_analysis(row: pd.Series):
 
     line = (
         alt.Chart(pts).mark_line(color=ui.INK_0, strokeWidth=1.4).encode(
-            x=alt.X("t_min:Q", axis=alt.Axis(title="min")),
-            y=alt.Y("hr:Q", scale=alt.Scale(domain=[hr_lo, hr_hi]),
-                    axis=alt.Axis(title="bpm")),
+            x=alt.X("t_min:Q", scale=x_scale, axis=alt.Axis(title="min")),
+            y=alt.Y("hr:Q", scale=y_scale, axis=alt.Axis(title="bpm")),
             tooltip=[alt.Tooltip("t_min:Q", format=".1f", title="Min"),
                      alt.Tooltip("hr:Q", title="HR")],
         )
