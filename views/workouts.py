@@ -36,26 +36,21 @@ def render(df: pd.DataFrame):
         compare.render(df)
         return
 
-    # ── List view (everything below is the existing code, unchanged) ─────
-    # ── Filter row ───────────────────────────────────────────────────────
-    cL, cR = st.columns([3, 2])
-    with cL:
-        q = st.text_input(
-            "Search", placeholder="Filter by label · e.g. 5000m",
-            label_visibility="collapsed",
-        )
-    with cR:
-        n = st.selectbox(
-            "Show", options=[20, 50, 100, 200], index=0,
-            label_visibility="collapsed",
-            format_func=lambda x: f"Last {x}",
-        )
+    # ── List view ─────────────────────────────────────────────────────────
+    # The open-workout selector must be the FIRST element in this section:
+    # the dropdown popover opens toward the larger free space, and on mobile
+    # a mid-page select flips upward and floats off the top of the screen.
+    # Keeping it at the top guarantees room below, so it opens downward.
+    # Its options depend on the filter widgets rendered *below* it, so we
+    # read their values from session state (any change reruns the script,
+    # keeping the options in sync).
+    q = st.session_state.get("wk_search", "")
+    n = st.session_state.get("wk_show_n", 20)
 
     work = df.head(n).copy()
     if q:
         work = work[work["label"].str.contains(q, case=False, na=False)]
 
-    # ── Open-workout selector ────────────────────────────────────────────
     # Drives the inline detail panel below. We keep the same session-state
     # key (selected_workout_id) the old app used, but renamed for clarity.
     options = {
@@ -71,6 +66,20 @@ def render(df: pd.DataFrame):
     )
     if not label.startswith("—"):
         st.session_state.selected_workout_id = options[label]
+
+    # ── Filter row ───────────────────────────────────────────────────────
+    cL, cR = st.columns([3, 2])
+    with cL:
+        st.text_input(
+            "Search", placeholder="Filter by label · e.g. 5000m",
+            label_visibility="collapsed", key="wk_search",
+        )
+    with cR:
+        st.selectbox(
+            "Show", options=[20, 50, 100, 200],
+            label_visibility="collapsed", key="wk_show_n",
+            format_func=lambda x: f"Last {x}",
+        )
 
     st.caption(f"{len(work)} workouts")
     _render_list(work)
