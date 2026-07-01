@@ -349,6 +349,31 @@ def _normalize_stroke(s: dict) -> dict:
     }
 
 
+def _accumulate_intervals(strokes: list[dict]) -> list[dict]:
+    """Make t and distance cumulative across interval segments.
+
+    For interval workouts (e.g. VariableInterval) the strokes endpoint resets
+    t and d to ~0 at the start of each interval, so a 5-interval piece plots
+    as five overlapping traces capped at the longest segment. Detect resets
+    (t going backwards) and add the previous segment's final t/distance as an
+    offset. Idempotent: a monotonic series has no resets and passes through
+    unchanged, so it's safe to apply to already-cumulative cached data.
+    """
+    t_off = d_off = 0.0
+    prev_t = prev_d = None
+    out = []
+    for s in strokes:
+        t = s.get("t", 0)
+        d = s.get("distance", 0)
+        if prev_t is not None and t < prev_t:
+            t_off += prev_t
+            d_off += prev_d
+        prev_t, prev_d = t, d
+        out.append({**s, "t": round(t + t_off, 1),
+                    "distance": round(d + d_off, 1)})
+    return out
+
+
 def _sample_strokes(result_id: int) -> list[dict]:
     """Synthesise a plausible stroke series for sample mode from the matching
     sample workout, so the time-in-zone / HR-trace UI works without a token."""
@@ -399,7 +424,7 @@ def fetch_strokes(result_id: int, user_id: Optional[int] = None) -> list[dict]:
     except Exception:
         return []
     raw = body.get("data", [])
-    return [_normalize_stroke(s) for s in raw]
+    return _accumulate_intervals([_normalize_stroke(s) for s in raw])
 
 
 def cached_strokes(user_id, result_id: int) -> list[dict]:
@@ -407,12 +432,14 @@ def cached_strokes(user_id, result_id: int) -> list[dict]:
 
     Stroke data never changes once a workout is logged, so this is cached
     permanently (no TTL). An empty result is cached too, so we don't re-hit the
-    API for workouts that have no stroke data.
+    API for workouts that have no stroke data. Cached reads re-run
+    _accumulate_intervals (a no-op on already-cumulative data) so series
+    cached before the interval fix are repaired on the fly.
     """
     uid = str(user_id)
     cached = db.strokes_get(uid, result_id)
     if cached is not None:
-        return cached
+        return _accumulate_intervals(cached)
     data = fetch_strokes(result_id, user_id)
     db.strokes_set(uid, result_id, data)
     return data
