@@ -3,6 +3,7 @@
 
 # Local-only planning doc — never commit
 ENHANCEMENTS.md
+PLAN_ALIGNMENT_TASKS.md
 
 # Local SQLite workout cache
 data/
