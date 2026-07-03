@@ -247,7 +247,7 @@ def percentile_bar_html(rank: int, field: int, height: int = 6) -> str:
 
 def sparkline_html(values: list, width: int = 64, height: int = 18,
                    color: str = None, label: str = "trend",
-                   fill: bool = False) -> str:
+                   fill: bool = False, invert: bool = False) -> str:
     """
     SVG sparkline, returned as a base64 ``<img>`` data URI.
 
@@ -255,6 +255,10 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
     up fine in some older versions but is removed on current ones), so the SVG
     is encoded and embedded as an ``<img>``, which survives sanitization. Values
     are oldest→newest; < 2 values renders a blank spacer of the same size.
+
+    ``invert=True`` flips the y-axis so lower values plot higher. Use for pace
+    series, matching the reversed pace axes on the full charts (faster = up
+    everywhere).
 
     When ``fill`` is True, a faint area is drawn under the line (the
     filled-gradient look from the hi-fi mockups). The stroke is inset by
@@ -271,7 +275,8 @@ def sparkline_html(values: list, width: int = 64, height: int = 18,
     pad = 1.0  # keep the 1.4px stroke off the top/bottom edges
     plot_h = height - 2 * pad
     pts = " ".join(
-        f"{i * step:.1f},{pad + (1 - (v - vmin) / span) * plot_h:.1f}"
+        f"{i * step:.1f},"
+        f"{pad + ((v - vmin) / span if invert else 1 - (v - vmin) / span) * plot_h:.1f}"
         for i, v in enumerate(values)
     )
     area = ""

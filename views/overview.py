@@ -122,13 +122,14 @@ def _render_aerobic_hero(eff):
     faster = improved > 0
     delta_color = ui.ACCENT_PR if faster else ui.ACCENT_WARN
     if abs(improved) >= 0.1:
-        arrow = "↓" if faster else "↑"  # lower pace = faster = down
+        arrow = "↑" if faster else "↓"  # faster plots up, like the pace charts
         delta_txt = f"{arrow} {abs(improved):.1f}s {'faster' if faster else 'slower'} since start"
     else:
         delta_txt = "holding steady"
-    # Lower pace is better, so a downward sparkline = improvement → green.
+    # Inverted so improvement climbs, matching the reversed pace axes on the
+    # full charts (faster = up everywhere).
     spark_html = ui.sparkline_html(spark, width=120, height=22,
-                                   color=delta_color, fill=True)
+                                   color=delta_color, fill=True, invert=True)
 
     st.html(
         f"""

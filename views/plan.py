@@ -71,13 +71,13 @@ def _render_efficiency(df: pd.DataFrame):
     faster = improved > 0
     delta_color = ui.ACCENT_PR if faster else ui.ACCENT_WARN
     if abs(improved) >= 0.1:
-        arrow = "↓" if faster else "↑"  # lower pace = faster = down
+        arrow = "↑" if faster else "↓"  # faster plots up, like the pace charts
         delta_txt = f"{arrow} {abs(improved):.1f}s {'faster' if faster else 'slower'} since start"
     else:
         delta_color = ui.INK_2
         delta_txt = "holding steady"
     spark = ui.sparkline_html(eff["norm_pace_s"].tolist(), width=140, height=26,
-                              color=delta_color, fill=True)
+                              color=delta_color, fill=True, invert=True)
 
     st.html(
         f"<div style='padding:14px 16px;background:{ui.BG_1};"
@@ -97,7 +97,8 @@ def _render_efficiency(df: pd.DataFrame):
     )
     st.caption(
         f"Each point is an easy Zone-2 row, pace normalised to {cap} bpm. "
-        "**Lower is better** — the goal is the line drifting down over time."
+        "**Faster plots higher** — the goal is the line climbing into the "
+        "target band over time."
     )
 
     # ── Chart: normalised easy pace over time ────────────────────────────
