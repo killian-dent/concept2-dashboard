@@ -60,6 +60,13 @@ PLAN_START_DATE = _secret("PLAN_START_DATE", "").strip() or None
 PLAN_BLOCK_WEEKS = 4
 PLAN_RECOVERY_EVERY = 4
 
+# Intensity-distribution targets, by weekly minutes (pyramidal, not 80/20 —
+# see rostrum's "Intensity Distribution Reconciliation" research note).
+# Warmups, cooldowns, and interval recoveries count as easy minutes.
+EASY_TARGET_PCT = 60
+MODERATE_TARGET_PCT = 33
+HARD_CEILING_PCT = 10
+
 STANDARD_DISTANCES = {
     "100m":          100,
     "500m":          500,
