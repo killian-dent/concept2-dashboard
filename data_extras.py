@@ -221,14 +221,17 @@ def classify_session(row) -> str:
     return "other"
 
 
-def weekly_plan(df: pd.DataFrame, weeks: int = 8) -> list:
+def weekly_plan(df: pd.DataFrame, weeks: int = 8, uid: str = None) -> list:
     """Per-week adherence to the Mon/Wed/Fri plan, newest week first.
 
     For each of the last `weeks` calendar weeks (Mon-start) returns a dict:
       week (Timestamp, Monday), sessions (int), easy_pct (float 0-100),
       easy_done / intervals_done / steady_done (bool), and `items` — the
       classified sessions (label, kind, duration, hr, day).
-    Weeks with no sessions are still included so gaps are visible.
+    Weeks with no sessions are still included so gaps are visible. `easy_pct`
+    uses stroke-accurate time-in-zone when `uid` is given (see
+    _session_zone_minutes) so an interval day's warmup/cooldown minutes count
+    as easy rather than dragging the whole session into the hard bucket.
     """
     if df.empty:
         return []
@@ -245,11 +248,12 @@ def weekly_plan(df: pd.DataFrame, weeks: int = 8) -> list:
     for wk in week_starts:
         sub = work[work["wk"] == wk]
         kinds = set(sub["kind"])
-        zone_min = (sub.assign(minutes=sub["time_s"] / 60.0)
-                    [sub["hr_zone"] > 0])
-        total_min = zone_min["minutes"].sum() if not zone_min.empty else 0
-        easy_min = (zone_min[zone_min["hr_zone"] <= 2]["minutes"].sum()
-                    if not zone_min.empty else 0)
+        zone_min = {}
+        for _, r in sub[sub["hr_zone"] > 0].iterrows():
+            for z, minutes in _session_zone_minutes(r, uid).items():
+                zone_min[z] = zone_min.get(z, 0.0) + minutes
+        total_min = sum(zone_min.values())
+        easy_min = sum(m for z, m in zone_min.items() if z <= 2)
         items = [
             {"label": r["label"], "kind": r["kind"],
              "duration": r["duration"], "hr": int(r["hr_avg"] or 0),
@@ -297,6 +301,11 @@ _PLAN_DOW = {0: "easy", 2: "interval", 4: "steady"}
 # Optional strength pairing on rest days (from the plan's Tonal section).
 _REST_STRENGTH = {1: "upper-body push/pull", 3: "core + lower body"}
 
+# Friday steady-session target band: a fixed 130-140 bpm sub-range inside
+# Zone 3 (126-144), not the full zone — narrower than the zone model gives.
+_STEADY_HR_LO = 130
+_STEADY_HR_HI = 140
+
 
 def _zone_bounds() -> dict:
     """Zone number → (low_bpm, high_bpm) from the live config HR model."""
@@ -342,7 +351,8 @@ def _build_session(d, plan_start) -> dict:
         dur = 35 if (block and block >= 2) else 30
         return {"type": "steady", "title": "Steady Aerobic",
                 "lines": [f"{dur} min · no rest",
-                          f"HR {z[3][0]}–{z[3][1]} bpm (Zone 3)", "22–24 spm"],
+                          f"HR {_STEADY_HR_LO}–{_STEADY_HR_HI} bpm (Zone 3)",
+                          "22–24 spm"],
                 "goal": "Conversational but firm — short sentences only. "
                         "Controlled, not hard.",
                 "block_label": block_label, "recovery": False}
@@ -410,15 +420,39 @@ def next_workout(df: pd.DataFrame, now=None) -> dict:
             "rest_strength": _REST_STRENGTH.get(dow)}
 
 
-# ── Weekly HR-zone distribution (the 80/20 pyramid check) ─────────────────
+# ── Weekly HR-zone distribution (the pyramidal distribution check, 60/33/<10) ──
 
-def weekly_zone_minutes(df: pd.DataFrame, days: int = 84) -> pd.DataFrame:
-    """Minutes per HR zone per ISO week (session-level, by each row's avg HR).
+def _session_zone_minutes(row, uid: str = None) -> dict:
+    """Per-zone minutes for one session — stroke-accurate when possible.
 
-    This is the practical default for the whole-history view: it classifies a
-    session by its average heart rate rather than fetching per-stroke data for
-    every workout. Sessions without HR (hr_zone 0) are dropped. Returns columns:
-    week, hr_zone, minutes.
+    When `uid` is given and this session's strokes are cached (see
+    api.cached_strokes), uses true per-sample time-in-zone so an interval
+    session's warmup/recovery/cooldown minutes land in Zones 1-2 instead of
+    the whole session being bucketed by its (high) average HR — the fix for
+    the misclassification 2.1 exists to solve. Falls back to a single bucket
+    at the session's average-HR zone when no strokes are cached or uid is
+    None. Returns {} for sessions with no HR at all.
+    """
+    if uid is not None:
+        import api  # local import: avoids a module-load-time cycle with api→data
+        strokes = api.cached_strokes(uid, int(row["id"]))
+        if strokes:
+            secs = time_in_zone_from_strokes(strokes)
+            if secs:
+                return {z: s / 60.0 for z, s in secs.items()}
+    z = row.get("hr_zone", 0) or 0
+    if not z:
+        return {}
+    return {z: (row.get("time_s", 0) or 0) / 60.0}
+
+
+def weekly_zone_minutes(df: pd.DataFrame, days: int = 84, uid: str = None) -> pd.DataFrame:
+    """Minutes per HR zone per ISO week.
+
+    Uses stroke-accurate time-in-zone (via _session_zone_minutes) when `uid`
+    is given, falling back to session-average classification for any session
+    with no cached strokes — the two mix transparently. Sessions without HR
+    (hr_zone 0) are dropped. Returns columns: week, hr_zone, minutes.
     """
     if df.empty:
         return df
@@ -429,24 +463,47 @@ def weekly_zone_minutes(df: pd.DataFrame, days: int = 84) -> pd.DataFrame:
     if sub.empty:
         return sub
     sub["week"] = _utc(sub["date"]).dt.tz_localize(None).dt.to_period("W").dt.start_time
-    sub["minutes"] = sub["time_s"] / 60.0
-    return (sub.groupby(["week", "hr_zone"])["minutes"].sum()
+
+    rows = []
+    for _, r in sub.iterrows():
+        for z, minutes in _session_zone_minutes(r, uid).items():
+            rows.append({"week": r["week"], "hr_zone": z, "minutes": minutes})
+    if not rows:
+        return sub.iloc[0:0][["week"]].assign(hr_zone=pd.Series(dtype=int),
+                                               minutes=pd.Series(dtype=float))
+    return (pd.DataFrame(rows).groupby(["week", "hr_zone"])["minutes"].sum()
                .reset_index())
 
 
 def easy_ratio(zone_minutes: pd.DataFrame) -> float:
     """Share of total minutes spent easy (Zones 1-2) across the given frame.
 
-    The plan targets ~80% — keeping two-thirds to four-fifths of weekly minutes
-    genuinely easy. Returns 0.0 when there's no data.
+    The plan targets ~60% easy by minutes (pyramidal 60/33/<10); warmups,
+    cooldowns, and interval recoveries count as easy. Returns 0.0 when there's
+    no data.
     """
+    return distribution(zone_minutes)["easy"]
+
+
+def distribution(zone_minutes: pd.DataFrame) -> dict:
+    """Easy/moderate/hard shares of total minutes across the given frame.
+
+    Easy = Zones 1-2, moderate = Zone 3, hard = Zones 4-5 — the plan's
+    pyramidal targets (config.EASY_TARGET_PCT ~60 / MODERATE_TARGET_PCT ~33 /
+    HARD_CEILING_PCT <10). Returns {"easy", "moderate", "hard"} as 0-1
+    fractions that sum to ~1.0; all zero when there's no data.
+    """
+    zero = {"easy": 0.0, "moderate": 0.0, "hard": 0.0}
     if zone_minutes is None or zone_minutes.empty:
-        return 0.0
+        return zero
     total = zone_minutes["minutes"].sum()
     if total <= 0:
-        return 0.0
-    easy = zone_minutes[zone_minutes["hr_zone"] <= 2]["minutes"].sum()
-    return float(easy / total)
+        return zero
+
+    def share(zones):
+        return float(zone_minutes[zone_minutes["hr_zone"].isin(zones)]["minutes"].sum() / total)
+
+    return {"easy": share([1, 2]), "moderate": share([3]), "hard": share([4, 5])}
 
 
 # ── Aerobic decoupling within a single session ────────────────────────────
