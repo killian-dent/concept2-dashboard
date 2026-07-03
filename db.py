@@ -205,3 +205,30 @@ def strokes_set(user_id: str, result_id: int, data: list) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def strokes_migrate_user(old_uid: str, new_uid: str) -> int:
+    """One-time fixup: move strokes rows from old_uid to new_uid.
+
+    Handles the case where stroke data was cached under a placeholder key
+    (e.g. "me") before USER_ID was pinned to a numeric account — rows are
+    unreachable at their new numeric key until moved. Rows already cached
+    under new_uid win on conflict (INSERT OR IGNORE). Returns rows moved.
+    """
+    conn = _db()
+    rows = conn.execute(
+        "SELECT result_id, data, fetched_at FROM strokes WHERE user_id = ?",
+        (old_uid,),
+    ).fetchall()
+    moved = 0
+    for r in rows:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO strokes (user_id, result_id, data, fetched_at) "
+            "VALUES (?, ?, ?, ?)",
+            (new_uid, r["result_id"], r["data"], r["fetched_at"]),
+        )
+        moved += cur.rowcount
+    conn.execute("DELETE FROM strokes WHERE user_id = ?", (old_uid,))
+    conn.commit()
+    conn.close()
+    return moved

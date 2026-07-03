@@ -86,6 +86,15 @@ def _run_sync(uid: str) -> int:
     if new:
         db.upsert(uid, new)
     db.set_synced(uid)
+    try:
+        # Best-effort: keeps the distribution math (data_extras.py) stroke-
+        # accurate as new workouts land. A stroke-fetch hiccup shouldn't fail
+        # the sync above, which already succeeded — the distribution math
+        # falls back to session-average classification for any id left
+        # uncached.
+        api.backfill_strokes(uid, [w["id"] for w in db.get_all(uid)])
+    except Exception:
+        pass
     return len(new)
 
 

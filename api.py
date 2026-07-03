@@ -445,6 +445,23 @@ def cached_strokes(user_id, result_id: int) -> list[dict]:
     return data
 
 
+def backfill_strokes(user_id, result_ids: list[int]) -> int:
+    """Fetch-and-cache strokes for every id not already cached.
+
+    Idempotent: ids already in the strokes cache (including ones cached
+    empty — "fetched, no stroke data") cost only a cheap DB read, so this is
+    cheap to call on every sync as the workout list grows. Returns the number
+    of ids that required a live API fetch this call.
+    """
+    uid = str(user_id)
+    fetched = 0
+    for rid in result_ids:
+        if db.strokes_get(uid, rid) is None:
+            cached_strokes(uid, rid)
+            fetched += 1
+    return fetched
+
+
 def fetch_ranking(
     distance: int,
     year: int,
