@@ -1,6 +1,7 @@
 """
-Plan tab — training-plan tracking, built around the pyramidal 80/20 HR-zone
-program (see rostrum/resources/rowing-plan-summary.md).
+Plan tab — training-plan tracking, built around the pyramidal HR-zone
+program (~60% easy / ~33% moderate / <10% hard by minutes; see
+rostrum/resources/rowing-plan-summary.md).
 
 The plan's whole purpose is to lower a chronically high heart rate by building
 aerobic base, and its single success metric is the *easy-day split getting
@@ -19,7 +20,7 @@ import config
 import ui
 from data import format_pace, zone_name
 from data_extras import (aerobic_efficiency, aerobic_efficiency_summary,
-                          weekly_zone_minutes, easy_ratio,
+                          weekly_zone_minutes, distribution,
                           weekly_plan, plan_week_label,
                           recent_easy_steady, readiness_from_decoupling,
                           decoupling, READINESS_READY_PCT,
@@ -242,51 +243,88 @@ def _render_readiness(df: pd.DataFrame):
     )
 
 
-# ── Weekly intensity distribution (the 80/20 pyramid check) ──────────────
+# ── Weekly intensity distribution (the pyramidal distribution check, 60/33/<10) ──
+
+def _dist_bar_row(label: str, pct: int, status: str, color: str,
+                  bar: str, note: str) -> str:
+    """One threshold-bar row: uppercase label + big pct (+ status), the bar
+    itself, and a small note pinned under the marker (target/ceiling/ref)."""
+    return (
+        f"<div style='margin-top:12px;'>"
+        f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
+        f"<span style='font-size:10px;color:{ui.INK_2};letter-spacing:0.08em;"
+        f"text-transform:uppercase;font-weight:600;'>{label}</span>"
+        f"<span style='font-size:18px;font-weight:600;color:{color};"
+        f"font-variant-numeric:tabular-nums;letter-spacing:-0.02em;'>{pct}%"
+        f"<span style='font-size:10px;color:{ui.INK_2};font-weight:400;'> {status}"
+        f"</span></span></div>{bar}"
+        f"<div style='font-size:9px;letter-spacing:0.04em;text-transform:uppercase;"
+        f"color:{ui.INK_3};'>{note}</div></div>"
+    )
+
 
 def _render_zone_distribution(df):
     ui.section_label("Intensity distribution · last 12 weeks")
 
-    zm = weekly_zone_minutes(df, days=84)
+    uid = str(st.session_state.get("user_id", "me"))
+    zm = weekly_zone_minutes(df, days=84, uid=uid)
     if zm.empty:
         st.info("No heart-rate data yet — once sessions log HR, your weekly "
                 "easy/hard split shows up here.")
         return
 
-    ratio = easy_ratio(zm)
-    pct = round(ratio * 100)
-    on_target = pct >= 80
-    color = ui.ACCENT_PR if on_target else ui.ACCENT_WARN
-    status = "on target" if on_target else "below 80%"
+    dist = distribution(zm)
+    easy_pct = round(dist["easy"] * 100)
+    mod_pct = round(dist["moderate"] * 100)
+    hard_pct = round(dist["hard"] * 100)
 
-    # Progress toward target: the bar fills from the left to the actual easy
-    # share (amber below target, green at/above), and the white line marks the
-    # 80% target — a standard fill-to-goal reading.
-    bar = ui.threshold_bar_html(
-        80, 100, bands=[(pct, color), (100, ui.BG_2)],
+    easy_target = config.EASY_TARGET_PCT
+    mod_target = config.MODERATE_TARGET_PCT
+    hard_ceiling = config.HARD_CEILING_PCT
+
+    # Easy: fill-to-goal (green at/above target, amber below) — the bar fills
+    # to the actual share, the marker pins the 60% target.
+    easy_on_target = easy_pct >= easy_target
+    easy_color = ui.ACCENT_PR if easy_on_target else ui.ACCENT_WARN
+    easy_status = "on target" if easy_on_target else f"below {easy_target}%"
+    easy_bar = ui.threshold_bar_html(
+        easy_target, 100, bands=[(easy_pct, easy_color), (100, ui.BG_2)],
         vmin=0, marker_color=ui.INK_0,
     )
+
+    # Hard: inverted ceiling — green fill under the ceiling, red/alert over
+    # it. This is the loudest guardrail (easy days creeping hard is this
+    # athlete's failure mode), so it gets the alarm color, not just amber.
+    hard_on_target = hard_pct <= hard_ceiling
+    hard_color = ui.ACCENT_PR if hard_on_target else ui.zone_color(5)
+    hard_status = "under ceiling" if hard_on_target else f"over {hard_ceiling}% ceiling"
+    hard_bar = ui.threshold_bar_html(
+        hard_ceiling, 100, bands=[(hard_pct, hard_color), (100, ui.BG_2)],
+        vmin=0, marker_color=ui.INK_0,
+    )
+
+    # Moderate: informational only, no pass/fail — the other two shares
+    # already gate the total, so moderate is implied. Neutral fill (Zone 3's
+    # own color) against a ~33% reference tick.
+    mod_bar = ui.threshold_bar_html(
+        mod_target, 100, bands=[(mod_pct, ui.ACCENT_SEL), (100, ui.BG_2)],
+        vmin=0, marker_color=ui.INK_0,
+    )
+
     st.html(
         f"<div style='padding:14px 16px;background:{ui.BG_1};"
         f"border:1px solid {ui.LINE};border-radius:10px;'>"
-        f"<div style='display:flex;justify-content:space-between;align-items:baseline;'>"
-        f"<span style='font-size:10px;color:{ui.INK_2};letter-spacing:0.08em;"
-        f"text-transform:uppercase;font-weight:600;'>Easy · Zones 1–2</span>"
-        f"<span style='font-size:24px;font-weight:600;color:{color};"
-        f"font-variant-numeric:tabular-nums;letter-spacing:-0.02em;'>{pct}%"
-        f"<span style='font-size:11px;color:{ui.INK_2};font-weight:400;'> {status}"
-        f"</span></span></div>"
-        # bar + a "80% target" label pinned under the marker (padding-bottom
-        # reserves space and stops the bar's margin from collapsing through).
-        f"<div style='position:relative;padding-bottom:13px;'>{bar}"
-        f"<div style='position:absolute;left:80%;bottom:0;"
-        f"transform:translateX(-50%);font-size:9px;letter-spacing:0.04em;"
-        f"text-transform:uppercase;color:{ui.INK_2};white-space:nowrap;'>"
-        f"80% target</div></div>"
-        f"</div>"
+        + _dist_bar_row("Easy · Zones 1–2", easy_pct, easy_status, easy_color,
+                        easy_bar, f"{easy_target}% target")
+        + _dist_bar_row("Hard · Zones 4–5", hard_pct, hard_status, hard_color,
+                        hard_bar, f"{hard_ceiling}% ceiling")
+        + _dist_bar_row("Moderate · Zone 3", mod_pct, "", ui.ACCENT_SEL,
+                        mod_bar, f"~{mod_target}% reference")
+        + "</div>"
     )
     st.caption(
-        "Pyramidal plan: keep ~**80%** of weekly minutes easy. The stacked bars "
+        f"Pyramidal plan: ~**{easy_target}%** of weekly minutes easy, ~a third "
+        f"moderate (Z3), under **{hard_ceiling}%** hard (Z4–5). The stacked bars "
         "below split each week by HR zone — warm colours (Z4–5) are the hard days."
     )
 
@@ -362,7 +400,7 @@ def _adherence_week_row(w, ctx, is_current=False):
         right = f"<span style='font-size:10px;color:{ui.INK_3};'>no sessions</span>"
     else:
         easy_pct = round(w["easy_pct"])
-        ecol = ui.ACCENT_PR if easy_pct >= 80 else ui.INK_2
+        ecol = ui.ACCENT_PR if easy_pct >= config.EASY_TARGET_PCT else ui.INK_2
         rtag = (f"<span style='font-size:9px;color:{ui.ACCENT_WARN};'>recovery · </span>"
                 if recovery else "")
         right = (f"{rtag}<span style='font-size:11px;color:{ecol};"
@@ -388,7 +426,8 @@ def _adherence_week_row(w, ctx, is_current=False):
 def _render_adherence(df):
     ui.section_label("Weekly plan adherence")
 
-    weeks = weekly_plan(df, weeks=8)  # two full 4-week blocks
+    uid = str(st.session_state.get("user_id", "me"))
+    weeks = weekly_plan(df, weeks=8, uid=uid)  # two full 4-week blocks
     if not weeks or all(w["sessions"] == 0 for w in weeks):
         st.caption("No recent sessions to check against the Mon/Wed/Fri plan.")
         return
