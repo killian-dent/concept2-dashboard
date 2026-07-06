@@ -15,11 +15,37 @@ Public API:
   RECOVERY_WEEK       — the recovery-week template (every 4th week)
   GATE                — the Phase 1 -> Phase 2 gate: open week, test week,
                          protocol, and the criteria checklist
+  SKIPPED_WEEKS       — calendar weeks that pause the plan (vacation, etc.)
+  skipped_week_starts()        — normalized set of skipped week Mondays
+  is_skipped_week(date)        — whether a date falls in a skipped week
+  plan_week_of(date, plan_start) — 1-based plan week for a date, or None
+                                    (pre-plan) or "skipped" (a paused week)
   gate_test_date(plan_start)  — Monday of the gate drift-test week
   milestones(plan_start)      — chronological schedule milestones
 """
 import config
 import pandas as pd
+
+
+# ── Skipped weeks — vacations/pauses that don't count toward plan weeks ────
+# List Mondays (any date in the week is tolerated — everything here
+# normalizes to the week's Monday via to_period("W").start_time). A skipped
+# week doesn't advance the plan: it doesn't get a block/week_in_block label,
+# it isn't a training week, and every week/milestone/gate date after it
+# shifts right by one calendar week per skipped week.
+SKIPPED_WEEKS = ["2026-07-27"]  # vacation — plan pauses, week doesn't count
+
+
+def skipped_week_starts() -> set:
+    """Normalized (Monday) timestamps for every configured skipped week."""
+    return {pd.Timestamp(d).normalize().to_period("W").start_time
+            for d in SKIPPED_WEEKS}
+
+
+def is_skipped_week(date) -> bool:
+    """Whether `date` falls in a configured skipped (paused) week."""
+    wk = pd.Timestamp(date).normalize().to_period("W").start_time
+    return wk in skipped_week_starts()
 
 
 # ── Phase 1: Aerobic base (~12 weeks = three 4-week blocks) ───────────────
@@ -110,9 +136,60 @@ GATE = {
 def _week_monday(plan_start, week_num: int) -> pd.Timestamp:
     """Monday of the given 1-based plan week — same normalization
     plan_week_label uses (period('W').start_time), so schedule math here
-    stays consistent with the block/recovery labeling in data_extras."""
+    stays consistent with the block/recovery labeling in data_extras.
+
+    Walks forward one calendar week at a time from plan_start, but only
+    counts weeks that aren't in SKIPPED_WEEKS — so a skipped (vacation) week
+    doesn't consume a plan-week number, and everything after it (labels,
+    milestones, the gate) lands one calendar week later automatically.
+    """
+    current = pd.Timestamp(plan_start).normalize().to_period("W").start_time
+    count = 0
+    while True:
+        if not is_skipped_week(current):
+            count += 1
+            if count == week_num:
+                return current
+        current += pd.Timedelta(weeks=1)
+
+
+def next_active_week_monday(date) -> pd.Timestamp:
+    """Monday of the next non-skipped week at or after `date`'s week.
+
+    For a date inside a skipped week, this is the plan-resume date. For a
+    date in a normal week, it's just that week's Monday.
+    """
+    wk = pd.Timestamp(date).normalize().to_period("W").start_time
+    while is_skipped_week(wk):
+        wk += pd.Timedelta(weeks=1)
+    return wk
+
+
+def plan_week_of(date, plan_start):
+    """1-based plan week number containing `date`, counting only non-skipped
+    weeks since plan_start.
+
+    Returns None when `date` is before plan_start (pre-plan) or plan_start
+    is unset. Returns the string "skipped" when `date` falls in a configured
+    skipped (paused) week — it isn't a counted plan week at all. This is the
+    single source of truth for plan-week math; data_extras.plan_week_label
+    and views/plan.py's gate signals both route through it.
+    """
+    if plan_start is None:
+        return None
     start = pd.Timestamp(plan_start).normalize().to_period("W").start_time
-    return start + pd.Timedelta(weeks=week_num - 1)
+    wk = pd.Timestamp(date).normalize().to_period("W").start_time
+    if wk < start:
+        return None
+    if is_skipped_week(wk):
+        return "skipped"
+    count = 0
+    current = start
+    while current <= wk:
+        if not is_skipped_week(current):
+            count += 1
+        current += pd.Timedelta(weeks=1)
+    return count
 
 
 def gate_test_date(plan_start):
@@ -125,16 +202,23 @@ def gate_test_date(plan_start):
 def milestones(plan_start) -> list:
     """Chronological schedule milestones: [{date, label, kind}, ...].
 
-    kind is one of {block_start, recovery, gate_open, drift_test}. Covers
-    each block's start (with what changes), each block's recovery week, the
-    gate opening (week 12, same date as block 3's recovery week), and the
-    dedicated drift test (Monday of week 13). Empty list when plan_start
-    is None.
+    kind is one of {block_start, recovery, gate_open, drift_test, skipped}.
+    Covers each block's start (with what changes), each block's recovery
+    week, the gate opening (week 12, same date as block 3's recovery week),
+    the dedicated drift test (Monday of week 13), and one entry per
+    configured skipped week (labeled honestly as a pause, not a missed
+    week). Empty list when plan_start is None.
     """
     if plan_start is None:
         return []
     block_weeks = config.PLAN_BLOCK_WEEKS
     out = []
+    for skipped in skipped_week_starts():
+        out.append({
+            "date": skipped,
+            "label": "Vacation — plan paused (week doesn't count)",
+            "kind": "skipped",
+        })
     for b in range(1, PHASE1["n_blocks"] + 1):
         block_start_week = (b - 1) * block_weeks + 1
         out.append({

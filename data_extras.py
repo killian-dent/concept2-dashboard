@@ -276,23 +276,27 @@ def weekly_plan(df: pd.DataFrame, weeks: int = 8, uid: str = None) -> list:
 def plan_week_label(week_start, plan_start) -> dict:
     """Block/recovery context for a week given the plan start date.
 
-    Returns {} when plan_start is None. Otherwise {block, week_in_block,
-    recovery}: 1-based week index within the current 4-week cycle and whether
-    it's a recovery week (the cycle's 4th week). Blocks end on recovery weeks.
+    Returns {} when plan_start is None or the week is pre-plan. Returns
+    {"skipped": True} when the week is a configured skipped (paused) week —
+    it has no block/week_in_block, it just doesn't count. Otherwise returns
+    {block, week_in_block, recovery}: 1-based week index within the current
+    4-week cycle (computed from the plan week number, i.e. skipped weeks
+    don't consume a slot) and whether it's a recovery week (the cycle's 4th
+    week). Blocks end on recovery weeks.
     """
     if plan_start is None:
         return {}
     try:
-        start = pd.Timestamp(plan_start).normalize().to_period("W").start_time
+        pw = plan_spec.plan_week_of(week_start, plan_start)
     except Exception:
         return {}
-    delta_weeks = int((pd.Timestamp(week_start).normalize() - start).days // 7)
-    if delta_weeks < 0:
+    if pw is None:
         return {}
-    import config
-    block = delta_weeks // config.PLAN_BLOCK_WEEKS + 1
-    week_in_block = delta_weeks % config.PLAN_BLOCK_WEEKS + 1
-    recovery = (delta_weeks + 1) % config.PLAN_RECOVERY_EVERY == 0
+    if pw == "skipped":
+        return {"skipped": True}
+    block = (pw - 1) // config.PLAN_BLOCK_WEEKS + 1
+    week_in_block = (pw - 1) % config.PLAN_BLOCK_WEEKS + 1
+    recovery = pw % config.PLAN_RECOVERY_EVERY == 0
     return {"block": block, "week_in_block": week_in_block, "recovery": recovery}
 
 
@@ -321,8 +325,23 @@ def _build_session(d, plan_start) -> dict:
     model so they track MAX_HR / EASY_HR_CAP. On the Monday of the gate test
     week (plan_spec.GATE['test_week']) this returns the dedicated drift-test
     session instead of the regular Mon/Wed/Fri prescription — that Monday's
-    session is the gate reading, not another training day.
+    session is the gate reading, not another training day. On any day inside
+    a configured skipped (vacation) week, this returns a paused card instead
+    — the plan pauses honestly rather than showing a missed session.
     """
+    if plan_start is not None and plan_spec.is_skipped_week(d):
+        resume = plan_spec.next_active_week_monday(d)
+        resume_ctx = plan_week_label(resume, plan_start)
+        block_phrase = (f" with block {resume_ctx['block']}"
+                        if resume_ctx.get("block") else "")
+        return {"type": "paused", "title": "Plan paused · vacation",
+                "lines": ["No scheduled session this week",
+                          "Anything easy counts — walk, hike, yoga",
+                          "Keep effort conversational (Zone 1–2 feel)"],
+                "goal": f"Plan resumes {resume.strftime('%a %b %d')}"
+                        f"{block_phrase} — repeat the week, never compress.",
+                "block_label": None, "recovery": False}
+
     test_date = plan_spec.gate_test_date(plan_start)
     if test_date is not None and d.normalize() == test_date:
         return {"type": "test", "title": "Drift test · gate decision",

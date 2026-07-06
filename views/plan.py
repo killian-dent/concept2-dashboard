@@ -92,8 +92,17 @@ def _gate_signals(df: pd.DataFrame) -> dict:
     plan_week = None
     if config.PLAN_START_DATE:
         try:
-            start = pd.Timestamp(config.PLAN_START_DATE).normalize().to_period("W").start_time
-            plan_week = (pd.Timestamp.now().normalize() - start).days // 7 + 1
+            now = pd.Timestamp.now().normalize()
+            pw = plan_spec.plan_week_of(now, config.PLAN_START_DATE)
+            if pw == "skipped":
+                # Mid-vacation: the plan hasn't advanced, so for gate
+                # purposes treat "now" as still the last counted week —
+                # a paused week must never flip the gate open early.
+                pw = plan_spec.plan_week_of(now - pd.Timedelta(weeks=1),
+                                             config.PLAN_START_DATE)
+                if pw == "skipped":  # back-to-back skipped weeks
+                    pw = None
+            plan_week = pw
         except Exception:
             plan_week = None
     gate_open = plan_week is None or plan_week >= GATE_OPEN_WEEK
@@ -159,12 +168,15 @@ def _roadmap_milestones_html(items: list) -> str:
     rows = []
     for m in items:
         when = pd.Timestamp(m["date"]).strftime("%b %d")
+        paused = m.get("kind") == "skipped"
+        label_color = ui.ACCENT_WARN if paused else ui.INK_1
+        opacity = "opacity:0.85;" if paused else ""
         rows.append(
             f"<div style='display:flex;gap:10px;align-items:baseline;"
-            f"padding:4px 0;font-size:11.5px;'>"
+            f"padding:4px 0;font-size:11.5px;{opacity}'>"
             f"<span style='color:{ui.INK_2};width:44px;flex-shrink:0;"
             f"font-variant-numeric:tabular-nums;'>{when}</span>"
-            f"<span style='color:{ui.INK_1};'>{m['label']}</span></div>"
+            f"<span style='color:{label_color};'>{m['label']}</span></div>"
         )
     return (
         f"<div style='margin-top:12px;padding-top:10px;"
@@ -622,9 +634,10 @@ def _session_cell(letter, color, tint, done, expected=True):
 
 
 def _adherence_week_row(w, ctx, is_current=False):
-    recovery = ctx.get("recovery", False)
+    skipped = bool(ctx.get("skipped"))
+    recovery = (not skipped) and ctx.get("recovery", False)
     when = pd.Timestamp(w["week"]).strftime("%b %d")
-    wk_badge = f"wk {ctx['week_in_block']}" if ctx else ""
+    wk_badge = f"wk {ctx['week_in_block']}" if ctx and not skipped else ""
 
     dots = "".join(
         # intervals aren't expected on a recovery week (Zone 1 only)
@@ -632,6 +645,13 @@ def _adherence_week_row(w, ctx, is_current=False):
                       expected=not (recovery and letter == "I"))
         for letter, flag, color, tint in _ADHERENCE_CELLS
     )
+
+    if skipped:
+        left_label = (f"<span style='font-size:10px;color:{ui.ACCENT_WARN};"
+                      f"font-style:italic;'>vacation · plan paused</span>")
+    else:
+        left_label = (f"<span style='font-size:10px;color:{ui.INK_3};width:30px;"
+                      f"font-variant-numeric:tabular-nums;'>{wk_badge}</span>")
 
     if not w["sessions"]:
         right = f"<span style='font-size:10px;color:{ui.INK_3};'>no sessions</span>"
@@ -643,16 +663,17 @@ def _adherence_week_row(w, ctx, is_current=False):
         right = (f"{rtag}<span style='font-size:11px;color:{ecol};"
                  f"font-variant-numeric:tabular-nums;'>{easy_pct}% easy</span>")
 
-    rowbg = "rgba(230,184,106,0.06)" if recovery else "transparent"
+    rowbg = ("rgba(230,184,106,0.10)" if skipped else
+             ("rgba(230,184,106,0.06)" if recovery else "transparent"))
+    opacity = "opacity:0.8;" if skipped else ""
     accent = (f"border-left:2px solid {ui.ACCENT_SEL};padding-left:6px;"
               if is_current else "border-left:2px solid transparent;padding-left:6px;")
     return (
         f"<div style='display:grid;grid-template-columns:1fr auto;gap:8px;"
         f"align-items:center;padding:7px 8px;border-radius:8px;background:{rowbg};"
-        f"margin-bottom:4px;{accent}'>"
+        f"margin-bottom:4px;{opacity}{accent}'>"
         f"<div style='display:flex;align-items:center;gap:8px;'>"
-        f"<span style='font-size:10px;color:{ui.INK_3};width:30px;"
-        f"font-variant-numeric:tabular-nums;'>{wk_badge}</span>"
+        f"{left_label}"
         f"<span style='font-size:11px;color:{ui.INK_2};width:44px;"
         f"font-variant-numeric:tabular-nums;'>{when}</span>"
         f"<span style='display:inline-flex;gap:4px;'>{dots}</span></div>"
