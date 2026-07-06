@@ -508,18 +508,21 @@ def distribution(zone_minutes: pd.DataFrame) -> dict:
 
 # ── Aerobic decoupling within a single session ────────────────────────────
 
-def decoupling(strokes: list) -> dict:
+def decoupling(strokes: list, skip_s: float = 0.0) -> dict:
     """Pace:HR drift between the first and second half of a steady piece.
 
     Efficiency = speed / HR. If the aerobic system is holding up, efficiency
     stays roughly constant; if HR drifts up (or pace fades) in the back half,
     efficiency drops — that's cardiac drift. Returns
-    {pct, first_ef, second_ef} where a positive pct = efficiency dropped in the
-    second half. <5% is generally considered well-coupled / aerobically sound.
-    Returns {} when there isn't enough usable data.
+    {pct, first_ef, second_ef, analyzed_s} where a positive pct = efficiency
+    dropped in the second half and analyzed_s is the time span of the samples
+    used. <5% is generally considered well-coupled / aerobically sound.
+    `skip_s` drops samples before that mark (ramp-in trim); default 0 keeps
+    the whole piece. Returns {} when there isn't enough usable data.
     """
     pts = [s for s in (strokes or [])
-           if s.get("hr", 0) > 0 and s.get("pace", 0) > 0]
+           if s.get("hr", 0) > 0 and s.get("pace", 0) > 0
+           and s.get("t", 0) >= skip_s]
     if len(pts) < 6:
         return {}
     mid = pts[len(pts) // 2].get("t", 0)
@@ -540,6 +543,7 @@ def decoupling(strokes: list) -> dict:
         "pct": (first - second) / first * 100.0,
         "first_ef": first,
         "second_ef": second,
+        "analyzed_s": pts[-1].get("t", 0) - pts[0].get("t", 0),
     }
 
 
@@ -547,18 +551,26 @@ def decoupling(strokes: list) -> dict:
 # Easy-day decoupling thresholds from the plan summary's "When to Advance to
 # Phase 2": <5% = aerobic base solid (ready); 5-10% = developing (hold a block);
 # >10% = aerobic deficiency (stay in base). See rowing-plan-summary.md.
+# The in-plan Monday rows only trend this signal; the formal gate is a
+# dedicated drift test (15 min warmup + 45-60 min steady Zone 2) taken fresh
+# after the block-3 recovery week — see the constants below.
 READINESS_READY_PCT = 5.0
 READINESS_DEVELOPING_PCT = 10.0
+DRIFT_SKIP_S = 600.0       # trim ramp-in so in-plan reads compare to the test protocol
+DRIFT_FULL_TEST_S = 2400.0  # 40 min analyzed; below this a reading is provisional
+GATE_OPEN_WEEK = 12         # phase gate opens at the block-3 recovery week
 
 
 def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,
-                       hr_hi: int = 126, min_minutes: int = 20) -> list:
+                       hr_hi: int = 126, min_minutes: int = 30) -> list:
     """Most-recent easy Zone-2 steady sessions suitable for a drift check.
 
     Same easy-session filter as aerobic_efficiency (avg HR ~Zone 2, not interval
-    work) but requires enough duration to show meaningful cardiac drift and
-    returns the newest `n` as [{id, date}] newest-first. These are the sessions
-    whose decoupling feeds the phase-readiness gate.
+    work) but requires enough duration to show meaningful cardiac drift, is
+    restricted to the current plan period (sessions before
+    config.PLAN_START_DATE are excluded, when set), and returns the newest `n`
+    as [{id, date}] newest-first. These are the sessions whose decoupling
+    feeds the phase-readiness gate.
     """
     if df is None or df.empty:
         return []
@@ -569,6 +581,13 @@ def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,
         & (df["pace_s"] > 0)
         & (df["time_s"] >= min_minutes * 60)
     ]
+    import config
+    if config.PLAN_START_DATE:
+        try:
+            start = pd.Timestamp(config.PLAN_START_DATE).tz_localize("UTC")
+            sub = sub[_utc(sub["date"]) >= start]
+        except Exception:
+            pass
     if sub.empty:
         return []
     sub = sub.sort_values("date", ascending=False).head(n)

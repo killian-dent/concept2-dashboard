@@ -24,7 +24,8 @@ from data_extras import (aerobic_efficiency, aerobic_efficiency_summary,
                           weekly_plan, plan_week_label,
                           recent_easy_steady, readiness_from_decoupling,
                           decoupling, READINESS_READY_PCT,
-                          READINESS_DEVELOPING_PCT)
+                          READINESS_DEVELOPING_PCT, DRIFT_SKIP_S,
+                          DRIFT_FULL_TEST_S, GATE_OPEN_WEEK)
 
 # The plan's illustrative target band for the easy-day split at 120 bpm.
 _TARGET_FAST_S = 150  # 2:30
@@ -152,30 +153,39 @@ def _render_efficiency(df: pd.DataFrame):
 
 
 # ── Phase readiness (the "should I advance to Phase 2?" gate) ─────────────
+# Green requires ALL of: trimmed drift < READINESS_READY_PCT, normalized easy
+# pace inside the target band, plan week >= GATE_OPEN_WEEK, and a full-length
+# (>= DRIFT_FULL_TEST_S analyzed) reading — the in-plan Monday rows only
+# trend the signal, the formal gate is the dedicated drift test after the
+# block-3 recovery week. Otherwise the card names the failing condition.
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def _easy_decoupling_pcts(uid: str, ids: tuple) -> list:
-    """Decoupling % for each easy session id, via the per-stroke series.
+    """(pct, analyzed_s) for each easy session id, via the per-stroke series.
 
-    Cached by (uid, ids) so flipping tabs doesn't re-fetch strokes. Sessions
-    without enough usable stroke data are simply skipped.
+    Ramp-in trimmed with DRIFT_SKIP_S so these compare to the canonical
+    warmup-excluded test protocol. Cached by (uid, ids) so flipping tabs
+    doesn't re-fetch strokes. Sessions without enough usable stroke data are
+    simply skipped.
     """
     out = []
     for rid in ids:
-        dec = decoupling(api.cached_strokes(uid, int(rid)))
+        dec = decoupling(api.cached_strokes(uid, int(rid)), skip_s=DRIFT_SKIP_S)
         if dec:
-            out.append(dec["pct"])
+            out.append((dec["pct"], dec["analyzed_s"]))
     return out
 
 
 def _render_readiness(df: pd.DataFrame):
+    import statistics
+
     sessions = recent_easy_steady(df, n=3)
     if not sessions:
         return  # no qualifying easy steady rows yet — stay quiet
 
     uid = str(st.session_state.get("user_id", "me"))
-    pcts = _easy_decoupling_pcts(uid, tuple(s["id"] for s in sessions))
-    r = readiness_from_decoupling(pcts)
+    results = _easy_decoupling_pcts(uid, tuple(s["id"] for s in sessions))
+    r = readiness_from_decoupling([p for p, _ in results])
     if r["status"] == "unknown":
         return  # easy sessions exist but none had usable stroke data
 
@@ -183,22 +193,59 @@ def _render_readiness(df: pd.DataFrame):
 
     status = r["status"]
     med = r["median_pct"]
-    color, verdict, detail = {
-        "ready": (
-            ui.ACCENT_PR, "Ready to advance",
-            "Aerobic base is solid — if the 120-bpm split has dropped too, "
-            "advance to Phase 2.",
-        ),
-        "developing": (
+    provisional = statistics.median([a for _, a in results]) < DRIFT_FULL_TEST_S
+
+    eff = aerobic_efficiency(df)
+    s = aerobic_efficiency_summary(eff)
+    pace_ok = bool(s.get("latest_norm_pace_s")) and s["latest_norm_pace_s"] <= _TARGET_SLOW_S
+
+    if config.PLAN_START_DATE:
+        try:
+            start = pd.Timestamp(config.PLAN_START_DATE).normalize().to_period("W").start_time
+            plan_week = (pd.Timestamp.now().normalize() - start).days // 7 + 1
+        except Exception:
+            plan_week = None
+    else:
+        plan_week = None
+    gate_open = plan_week is None or plan_week >= GATE_OPEN_WEEK
+
+    if status == "base":
+        color, verdict, detail = (
+            ui.ACCENT_SEL, "Keep building base",
+            "Easy-day HR still drifts up — stay in Phase 1 and keep building.",
+        )
+    elif status == "developing":
+        color, verdict, detail = (
             ui.ACCENT_WARN, "Base developing",
             "Coupling is improving. Hold another 4-week Zone-2 block, then "
             "re-check.",
-        ),
-        "base": (
-            ui.ACCENT_SEL, "Keep building base",
-            "Easy-day HR still drifts up — stay in Phase 1 and keep building.",
-        ),
-    }[status]
+        )
+    elif not pace_ok:
+        color, verdict, detail = (
+            ui.ACCENT_WARN, "Coupling ready · pace still building",
+            "Drift is under the gate, but the 120-bpm split hasn't reached "
+            "the ~2:30–2:45 band — hold Phase 1 and let the pace come down.",
+        )
+    elif not gate_open:
+        color, verdict, detail = (
+            ui.ACCENT_SEL, f"On track — gate opens wk {GATE_OPEN_WEEK}",
+            "Both signals look good this early, which is encouraging — but "
+            "the base needs the full phase to consolidate. The formal drift "
+            "test comes after the block-3 recovery week.",
+        )
+    elif provisional:
+        color, verdict, detail = (
+            ui.ACCENT_WARN, "Ready — confirm with a full test",
+            "Trend says ready. Confirm with a dedicated drift test, taken "
+            "fresh: ~15 min warmup, then 45–60 min steady at the top of "
+            "Zone 2.",
+        )
+    else:
+        color, verdict, detail = (
+            ui.ACCENT_PR, "Ready to advance",
+            "Aerobic base is solid and the 120-bpm split agrees — advance "
+            "to Phase 2 if you feel genuinely fresh.",
+        )
 
     # Zoned gate: green (ready) → amber (developing) → blue (keep building).
     # Lower drift is better, so green sits on the left and the marker shows
@@ -215,6 +262,8 @@ def _render_readiness(df: pd.DataFrame):
         vmin=bar_min, marker_color=ui.INK_0,
     )
     sess = f"last {r['n']} easy session{'s' if r['n'] != 1 else ''}"
+    if provisional:
+        sess += " · short tests (trend only)"
 
     st.html(
         f"<div style='padding:14px 16px;background:{ui.BG_1};"
