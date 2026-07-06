@@ -117,12 +117,11 @@ def _gate_signals(df: pd.DataFrame) -> dict:
 # ── Plan roadmap (forward-looking: where am I, what's next, what's the gate) ──
 
 def _roadmap_timeline_html(plan_week) -> str:
-    """12 week cells (build vs recovery, past/current), a gate marker, and a
-    grayed Phase-2 tail. Pure HTML/CSS — sparse week labels at 1/4/8/12."""
+    """12 numbered week cells (build vs recovery, past/current), a gate
+    marker, and a grayed Phase-2 tail. Pure HTML/CSS."""
     total_weeks = plan_spec.PHASE1["weeks"]
     recovery_weeks = {b_wk for b in range(1, plan_spec.PHASE1["n_blocks"] + 1)
                        for b_wk in [b * config.PLAN_BLOCK_WEEKS]}
-    label_weeks = {1, 4, 8, 12}
 
     cells = []
     for wk in range(1, total_weeks + 1):
@@ -134,7 +133,7 @@ def _roadmap_timeline_html(plan_week) -> str:
                   else f"1px solid {ui.LINE}")
         opacity = "0.45" if is_past else "1"
         txt = ui.INK_0 if is_current else (ui.INK_3 if is_past else ui.INK_1)
-        label = str(wk) if wk in label_weeks else ""
+        label = str(wk)
         cells.append(
             f"<div style='flex:1;min-width:0;height:24px;display:flex;"
             f"align-items:center;justify-content:center;border-radius:5px;"
@@ -222,8 +221,8 @@ def _roadmap_checklist_html(gate: dict) -> str:
                 else:
                     dot = ui.INK_3
                 value = f"wk {pw} of {plan_spec.PHASE1['weeks']}"
-        else:  # fresh — always a neutral self-check, no data backs this one
-            dot, value = ui.INK_2, "self-check"
+        else:  # criterion the spec grew without a renderer here — skip it
+            continue
 
         rows.append(
             f"<div style='display:flex;justify-content:space-between;"

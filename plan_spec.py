@@ -127,8 +127,9 @@ GATE = {
          "target": "inside ~2:30-2:45, trending toward 2:30"},
         {"key": "week", "label": "Plan week",
          "target": "week 12 or later"},
-        {"key": "fresh", "label": "Feel genuinely fresh",
-         "target": "self-judged, no data"},
+        # Freshness (no elevated resting HR, good sleep, no dread) is also
+        # required to advance, but it's self-judged with no dashboard data —
+        # it lives in the plan doc and the readiness verdict copy, not here.
     ],
 }
 
