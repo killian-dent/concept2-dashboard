@@ -16,6 +16,7 @@ from datetime import timedelta
 import pandas as pd
 
 import config
+import plan_spec
 
 
 # ── KPI deltas: this period vs previous equal-length period ──────────────
@@ -315,10 +316,23 @@ def _zone_bounds() -> dict:
 def _build_session(d, plan_start) -> dict:
     """Structured spec for the planned session on a Mon/Wed/Fri date `d`.
 
-    Durations are block-aware (they grow in block 2+); HR targets come from the
-    live config zone model so they track MAX_HR / EASY_HR_CAP. Recovery weeks
-    override every day with a short Zone-1 session (no intervals).
+    Durations, reps, and the recovery-week template come from plan_spec
+    (BLOCKS / RECOVERY_WEEK); HR targets still come from the live config zone
+    model so they track MAX_HR / EASY_HR_CAP. On the Monday of the gate test
+    week (plan_spec.GATE['test_week']) this returns the dedicated drift-test
+    session instead of the regular Mon/Wed/Fri prescription — that Monday's
+    session is the gate reading, not another training day.
     """
+    test_date = plan_spec.gate_test_date(plan_start)
+    if test_date is not None and d.normalize() == test_date:
+        return {"type": "test", "title": "Drift test · gate decision",
+                "lines": ["~15 min warmup",
+                          "45–60 min steady · top of Zone 2 (HR ≈ upper-120s)",
+                          "taken fresh — skip if carrying fatigue"],
+                "goal": "Split-half drift on the steady portion decides the "
+                        "Phase-2 gate and re-derives the Day-1 cap.",
+                "block_label": None, "recovery": False}
+
     stype = _PLAN_DOW[d.weekday()]
     ctx = plan_week_label(d, plan_start)
     block = ctx.get("block")
@@ -330,16 +344,21 @@ def _build_session(d, plan_start) -> dict:
     z = _zone_bounds()
 
     if recovery:
+        rw = plan_spec.RECOVERY_WEEK
         return {"type": "recovery", "title": "Recovery · Zone 1",
-                "lines": ["20 min · no rest",
-                          f"HR < {z[1][1]} bpm (Zone 1)", "18–20 spm"],
+                "lines": [f"{rw['session_min']} min · no rest",
+                          f"HR < {z[1][1]} bpm (Zone 1)", f"{rw['spm']} spm"],
                 "goal": "Active recovery only — smooth and easy. No intervals, "
                         "no Zone 3. Arrive at next block genuinely fresh.",
                 "block_label": (block_label + " · recovery") if block_label else None,
                 "recovery": True}
 
+    # Blocks beyond 3 are Phase 2 territory (not yet specified) — continue on
+    # block 3's numbers as a placeholder; no plan start falls back to block 1.
+    spec = plan_spec.BLOCKS[min(block, 3)] if block else plan_spec.BLOCKS[1]
+
     if stype == "easy":
-        dur = 40 if (block and block >= 2) else 35
+        dur = spec["easy_min"]
         return {"type": "easy", "title": "Easy · Long Aerobic",
                 "lines": [f"{dur} min · no rest",
                           f"HR < {cap} bpm (Zone 2)", "20–22 spm"],
@@ -348,7 +367,7 @@ def _build_session(d, plan_start) -> dict:
                 "block_label": block_label, "recovery": False}
 
     if stype == "steady":
-        dur = 35 if (block and block >= 2) else 30
+        dur = spec["steady_min"]
         return {"type": "steady", "title": "Steady Aerobic",
                 "lines": [f"{dur} min · no rest",
                           f"HR {_STEADY_HR_LO}–{_STEADY_HR_HI} bpm (Zone 3)",
@@ -358,7 +377,7 @@ def _build_session(d, plan_start) -> dict:
                 "block_label": block_label, "recovery": False}
 
     # interval
-    reps = "7 × 1:00 or 6 × 1:15" if (block and block >= 3) else "6 × 1:00"
+    reps = spec["intervals"]
     return {"type": "interval", "title": "Intervals",
             "lines": ["5 min warmup", f"{reps} (work / 1:30 easy)",
                       "5 min cooldown", f"Work HR Zone 4 ({z[4][0]}–{z[4][1]})"],
@@ -558,7 +577,9 @@ READINESS_READY_PCT = 5.0
 READINESS_DEVELOPING_PCT = 10.0
 DRIFT_SKIP_S = 600.0       # trim ramp-in so in-plan reads compare to the test protocol
 DRIFT_FULL_TEST_S = 2400.0  # 40 min analyzed; below this a reading is provisional
-GATE_OPEN_WEEK = 12         # phase gate opens at the block-3 recovery week
+# Schedule (block/phase structure) lives in plan_spec now; GATE_OPEN_WEEK is
+# kept here too since existing callers import it from data_extras.
+GATE_OPEN_WEEK = plan_spec.GATE["open_week"]  # phase gate opens at the block-3 recovery week
 
 
 def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,

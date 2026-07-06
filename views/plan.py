@@ -7,9 +7,15 @@ The plan's whole purpose is to lower a chronically high heart rate by building
 aerobic base, and its single success metric is the *easy-day split getting
 faster at a fixed heart rate*. This tab leads with that.
 
-Sections (added incrementally):
+Sections:
+  • Plan roadmap — forward-looking: phase timeline, next milestones, and the
+    Phase-2 gate checklist. Shares its live signals with Phase readiness via
+    _gate_signals() so the two never disagree.
   • Aerobic efficiency — easy-day pace normalised to ~120 bpm, over time. ⭐
-  • (later) Weekly zone distribution, plan adherence.
+  • Phase readiness — the Phase 1 → Phase 2 gate verdict (backward-looking:
+    where the numbers stand right now).
+  • Weekly intensity distribution — the pyramidal 60/33/<10 check.
+  • Weekly plan adherence — Mon/Wed/Fri checklist, current plan period only.
 """
 import altair as alt
 import pandas as pd
@@ -17,6 +23,7 @@ import streamlit as st
 
 import api
 import config
+import plan_spec
 import ui
 from data import format_pace, zone_name
 from data_extras import (aerobic_efficiency, aerobic_efficiency_summary,
@@ -43,10 +50,210 @@ def render(df: pd.DataFrame):
         f"max HR {config.MAX_HR}"
     )
 
+    # Computed once, consumed by both the roadmap checklist and the
+    # readiness card so the two signals can never drift apart.
+    gate = _gate_signals(df)
+
+    _render_roadmap(df, gate)
     _render_efficiency(df)
-    _render_readiness(df)
+    _render_readiness(gate)
     _render_zone_distribution(df)
     _render_adherence(df)
+
+
+# ── Shared gate signals (feeds both the roadmap checklist and readiness) ──
+
+def _gate_signals(df: pd.DataFrame) -> dict:
+    """Compute the Phase-2 gate signals once for the whole tab.
+
+    Returns {status, median_pct, n_sessions, provisional, pace_s, pace_ok,
+    plan_week, gate_open}. `status` is "unknown" when there isn't yet enough
+    easy-session stroke data to read a decoupling number (no qualifying
+    sessions, or none with usable per-stroke data) — callers should treat
+    that as "nothing to show yet" rather than a verdict.
+    """
+    import statistics
+
+    sessions = recent_easy_steady(df, n=3)
+    status, median_pct, n_sessions, provisional = "unknown", None, 0, False
+    if sessions:
+        uid = str(st.session_state.get("user_id", "me"))
+        results = _easy_decoupling_pcts(uid, tuple(s["id"] for s in sessions))
+        r = readiness_from_decoupling([p for p, _ in results])
+        status, median_pct, n_sessions = r["status"], r["median_pct"], r["n"]
+        if results:
+            provisional = statistics.median([a for _, a in results]) < DRIFT_FULL_TEST_S
+
+    eff = aerobic_efficiency(df)
+    s = aerobic_efficiency_summary(eff)
+    pace_s = s.get("latest_norm_pace_s")
+    pace_ok = bool(pace_s) and pace_s <= _TARGET_SLOW_S
+
+    plan_week = None
+    if config.PLAN_START_DATE:
+        try:
+            start = pd.Timestamp(config.PLAN_START_DATE).normalize().to_period("W").start_time
+            plan_week = (pd.Timestamp.now().normalize() - start).days // 7 + 1
+        except Exception:
+            plan_week = None
+    gate_open = plan_week is None or plan_week >= GATE_OPEN_WEEK
+
+    return {
+        "status": status, "median_pct": median_pct, "n_sessions": n_sessions,
+        "provisional": provisional, "pace_s": pace_s, "pace_ok": pace_ok,
+        "plan_week": plan_week, "gate_open": gate_open,
+    }
+
+
+# ── Plan roadmap (forward-looking: where am I, what's next, what's the gate) ──
+
+def _roadmap_timeline_html(plan_week) -> str:
+    """12 week cells (build vs recovery, past/current), a gate marker, and a
+    grayed Phase-2 tail. Pure HTML/CSS — sparse week labels at 1/4/8/12."""
+    total_weeks = plan_spec.PHASE1["weeks"]
+    recovery_weeks = {b_wk for b in range(1, plan_spec.PHASE1["n_blocks"] + 1)
+                       for b_wk in [b * config.PLAN_BLOCK_WEEKS]}
+    label_weeks = {1, 4, 8, 12}
+
+    cells = []
+    for wk in range(1, total_weeks + 1):
+        recovery = wk in recovery_weeks
+        is_current = plan_week == wk
+        is_past = plan_week is not None and wk < plan_week
+        bg = "rgba(230,184,106,0.18)" if recovery else ui.BG_2
+        border = (f"1.5px solid {ui.ACCENT_SEL}" if is_current
+                  else f"1px solid {ui.LINE}")
+        opacity = "0.45" if is_past else "1"
+        txt = ui.INK_0 if is_current else (ui.INK_3 if is_past else ui.INK_1)
+        label = str(wk) if wk in label_weeks else ""
+        cells.append(
+            f"<div style='flex:1;min-width:0;height:24px;display:flex;"
+            f"align-items:center;justify-content:center;border-radius:5px;"
+            f"background:{bg};border:{border};opacity:{opacity};"
+            f"font-size:9px;font-weight:600;color:{txt};"
+            f"font-variant-numeric:tabular-nums;'>{label}</div>"
+        )
+
+    gate_marker = (
+        f"<div style='flex:0 0 auto;display:flex;align-items:center;"
+        f"gap:3px;padding:0 6px;font-size:10px;font-weight:600;"
+        f"color:{ui.ACCENT_WARN};white-space:nowrap;'>"
+        f"⚑ wk-12 gate</div>"
+    )
+    phase2_tail = (
+        f"<div style='flex:1.6;min-width:0;height:24px;display:flex;"
+        f"align-items:center;justify-content:center;border-radius:5px;"
+        f"border:1px dashed {ui.LINE};font-size:8.5px;color:{ui.INK_3};"
+        f"letter-spacing:0.02em;white-space:nowrap;'>Phase 2 · set at gate</div>"
+    )
+    return (
+        f"<div style='display:flex;gap:3px;align-items:center;'>"
+        + "".join(cells) + gate_marker + phase2_tail + "</div>"
+    )
+
+
+def _roadmap_milestones_html(items: list) -> str:
+    """Small dated rows for the next few plan_spec.milestones() entries."""
+    if not items:
+        return ""
+    rows = []
+    for m in items:
+        when = pd.Timestamp(m["date"]).strftime("%b %d")
+        rows.append(
+            f"<div style='display:flex;gap:10px;align-items:baseline;"
+            f"padding:4px 0;font-size:11.5px;'>"
+            f"<span style='color:{ui.INK_2};width:44px;flex-shrink:0;"
+            f"font-variant-numeric:tabular-nums;'>{when}</span>"
+            f"<span style='color:{ui.INK_1};'>{m['label']}</span></div>"
+        )
+    return (
+        f"<div style='margin-top:12px;padding-top:10px;"
+        f"border-top:1px solid {ui.LINE};'>" + "".join(rows) + "</div>"
+    )
+
+
+def _roadmap_checklist_html(gate: dict) -> str:
+    """One row per plan_spec.GATE criterion: a state dot + the live value."""
+    rows = []
+    for crit in plan_spec.GATE["criteria"]:
+        key = crit["key"]
+        if key == "drift":
+            med = gate["median_pct"]
+            if med is None:
+                dot, value = ui.INK_3, "no data yet"
+            else:
+                if med < READINESS_READY_PCT:
+                    dot = ui.ACCENT_PR
+                elif med < READINESS_DEVELOPING_PCT:
+                    dot = ui.ACCENT_WARN
+                else:
+                    dot = ui.INK_3
+                value = f"{med:+.1f}%"
+                if gate["provisional"]:
+                    value += " (short tests)"
+        elif key == "pace":
+            if not gate["pace_s"]:
+                dot, value = ui.INK_3, "no data yet"
+            else:
+                dot = ui.ACCENT_PR if gate["pace_ok"] else ui.ACCENT_WARN
+                value = f"{format_pace(gate['pace_s'])} vs ~2:30 band"
+        elif key == "week":
+            pw = gate["plan_week"]
+            if pw is None:
+                dot, value = ui.INK_3, "set PLAN_START_DATE"
+            else:
+                open_wk = plan_spec.GATE["open_week"]
+                if pw >= open_wk:
+                    dot = ui.ACCENT_PR
+                elif pw >= open_wk - 3:
+                    dot = ui.ACCENT_WARN
+                else:
+                    dot = ui.INK_3
+                value = f"wk {pw} of {plan_spec.PHASE1['weeks']}"
+        else:  # fresh — always a neutral self-check, no data backs this one
+            dot, value = ui.INK_2, "self-check"
+
+        rows.append(
+            f"<div style='display:flex;justify-content:space-between;"
+            f"align-items:center;padding:6px 0;'>"
+            f"<div style='display:flex;align-items:center;gap:7px;'>"
+            f"<span style='width:8px;height:8px;border-radius:50%;"
+            f"background:{dot};flex-shrink:0;'></span>"
+            f"<span style='font-size:11.5px;color:{ui.INK_1};'>{crit['label']}"
+            f"</span></div>"
+            f"<span style='font-size:11px;color:{ui.INK_2};"
+            f"font-variant-numeric:tabular-nums;'>{value}</span></div>"
+        )
+    return (
+        f"<div style='margin-top:12px;padding-top:10px;"
+        f"border-top:1px solid {ui.LINE};'>" + "".join(rows) + "</div>"
+    )
+
+
+def _render_roadmap(df: pd.DataFrame, gate: dict):
+    ui.section_label("Plan roadmap · Phase 1 aerobic base")
+
+    plan_start = config.PLAN_START_DATE
+    if plan_start is None:
+        st.caption(
+            "Set `PLAN_START_DATE` in secrets to see the phase timeline and "
+            "upcoming milestones."
+        )
+        body = _roadmap_checklist_html(gate)
+    else:
+        today = pd.Timestamp.now().normalize()
+        upcoming = [m for m in plan_spec.milestones(plan_start)
+                    if pd.Timestamp(m["date"]) >= today][:4]
+        body = (
+            _roadmap_timeline_html(gate["plan_week"])
+            + _roadmap_milestones_html(upcoming)
+            + _roadmap_checklist_html(gate)
+        )
+
+    st.html(
+        f"<div style='padding:14px 16px;background:{ui.BG_1};"
+        f"border:1px solid {ui.LINE};border-radius:10px;'>{body}</div>"
+    )
 
 
 # ── Aerobic efficiency tracker (the headline metric) ─────────────────────
@@ -176,38 +383,17 @@ def _easy_decoupling_pcts(uid: str, ids: tuple) -> list:
     return out
 
 
-def _render_readiness(df: pd.DataFrame):
-    import statistics
-
-    sessions = recent_easy_steady(df, n=3)
-    if not sessions:
-        return  # no qualifying easy steady rows yet — stay quiet
-
-    uid = str(st.session_state.get("user_id", "me"))
-    results = _easy_decoupling_pcts(uid, tuple(s["id"] for s in sessions))
-    r = readiness_from_decoupling([p for p, _ in results])
-    if r["status"] == "unknown":
-        return  # easy sessions exist but none had usable stroke data
+def _render_readiness(gate: dict):
+    if gate["status"] == "unknown":
+        return  # no qualifying easy sessions yet, or none with usable stroke data
 
     ui.section_label("Phase readiness · easy-day decoupling")
 
-    status = r["status"]
-    med = r["median_pct"]
-    provisional = statistics.median([a for _, a in results]) < DRIFT_FULL_TEST_S
-
-    eff = aerobic_efficiency(df)
-    s = aerobic_efficiency_summary(eff)
-    pace_ok = bool(s.get("latest_norm_pace_s")) and s["latest_norm_pace_s"] <= _TARGET_SLOW_S
-
-    if config.PLAN_START_DATE:
-        try:
-            start = pd.Timestamp(config.PLAN_START_DATE).normalize().to_period("W").start_time
-            plan_week = (pd.Timestamp.now().normalize() - start).days // 7 + 1
-        except Exception:
-            plan_week = None
-    else:
-        plan_week = None
-    gate_open = plan_week is None or plan_week >= GATE_OPEN_WEEK
+    status = gate["status"]
+    med = gate["median_pct"]
+    provisional = gate["provisional"]
+    pace_ok = gate["pace_ok"]
+    gate_open = gate["gate_open"]
 
     if status == "base":
         color, verdict, detail = (
@@ -261,7 +447,8 @@ def _render_readiness(df: pd.DataFrame):
                (bar_max, ui.ACCENT_SEL)],
         vmin=bar_min, marker_color=ui.INK_0,
     )
-    sess = f"last {r['n']} easy session{'s' if r['n'] != 1 else ''}"
+    n = gate["n_sessions"]
+    sess = f"last {n} easy session{'s' if n != 1 else ''}"
     if provisional:
         sess += " · short tests (trend only)"
 
@@ -478,6 +665,12 @@ def _render_adherence(df):
 
     uid = str(st.session_state.get("user_id", "me"))
     weeks = weekly_plan(df, weeks=8, uid=uid)  # two full 4-week blocks
+
+    # Pre-plan weeks (before PLAN_START_DATE) aren't part of the plan being
+    # tracked here — drop them so the checklist doesn't show block-less rows.
+    if config.PLAN_START_DATE is not None:
+        weeks = [w for w in weeks if plan_week_label(w["week"], config.PLAN_START_DATE)]
+
     if not weeks or all(w["sessions"] == 0 for w in weeks):
         st.caption("No recent sessions to check against the Mon/Wed/Fri plan.")
         return

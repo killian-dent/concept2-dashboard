@@ -26,6 +26,7 @@ _TYPE_ACCENT = {
     "interval": ui.ACCENT_WARN,  # amber — the hard day
     "steady":   ui.ACCENT_SEL,   # blue
     "recovery": ui.INK_2,        # muted — take it easy
+    "test":     ui.ACCENT_WARN,  # amber — the gate drift test, treat it as a big day
 }
 
 
