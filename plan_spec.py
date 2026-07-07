@@ -1,7 +1,7 @@
 """
 plan_spec.py — declarative spec for the pyramidal aerobic-base rowing plan.
 
-Narrative source of truth: rostrum's resources/rowing-plan-summary.md
+Narrative source of truth: rostrum's outputs/rowing-plan-summary.md
 ("Training Structure — Blocks and Phases" / "When to Advance to Phase 2" /
 "Recovery Week"). This module holds the plan's *structure* — durations,
 reps, gate criteria, schedule math — as data. Live HR numbers still come

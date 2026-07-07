@@ -1,9 +1,13 @@
 # Secrets — never commit
 .streamlit/secrets.toml
 
-# Local-only planning doc — never commit
-ENHANCEMENTS.md
-PLAN_ALIGNMENT_TASKS.md
+# Dense technical planning scratch (cross-project convention) — never commit
+PLANNING.md
+
+# Machine-specific Claude context — never commit
+CLAUDE.md
+CLAUDE.local.md
+.claude/settings.local.json
 
 # Local SQLite workout cache
 data/

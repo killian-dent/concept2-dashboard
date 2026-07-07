@@ -1,7 +1,7 @@
 """
 Plan tab — training-plan tracking, built around the pyramidal HR-zone
 program (~60% easy / ~33% moderate / <10% hard by minutes; see
-rostrum/resources/rowing-plan-summary.md).
+rostrum/outputs/rowing-plan-summary.md).
 
 The plan's whole purpose is to lower a chronically high heart rate by building
 aerobic base, and its single success metric is the *easy-day split getting
