@@ -12,6 +12,9 @@ CLAUDE.local.md
 # Local SQLite workout cache
 data/
 
+# Jujutsu (jj colocated with git) — never commit jj internals
+.jj/
+
 # Python
 __pycache__/
 *.pyc
