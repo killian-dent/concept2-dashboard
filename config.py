@@ -22,9 +22,11 @@ RESULTS_PER_PAGE = 250  # API max — fewer pages on the first full fetch
 
 # ── Heart-rate zones ───────────────────────────────────────────────────────
 # Zones are derived proportionally from MAX_HR (see rowing-plan-summary.md).
-# MAX_HR is an estimate (observed session-average peak ~173, anchored at 180);
-# override via the MAX_HR secret/env var if a PM5 peak above 180 is ever seen —
-# all zone boundaries shift with it.
+# The 180 below is a generic fallback, NOT the operating value: the real anchor
+# is personal health data and lives in the MAX_HR secret/env var, because this
+# repo is public. Set it from an observed stroke-level peak (observed peaks beat
+# estimates); all zone boundaries shift with it. Verify a candidate peak is
+# sustained across several strokes rather than a single-stroke HRM spike.
 _max_hr = _secret("MAX_HR", "180")
 MAX_HR = int(_max_hr) if _max_hr.isdigit() else 180
 
@@ -41,10 +43,20 @@ _ZONE_PCTS = [
 HR_ZONES = [(z, name, round(lo * MAX_HR), round(hi * MAX_HR))
             for z, name, lo, hi in _ZONE_PCTS]
 
-# Day-1 easy-aerobic HR ceiling. The plan starts at 120 and raises it as the
-# aerobic base develops; override via the EASY_HR_CAP secret/env var.
+# Day-1 easy-aerobic HR ceiling — a *training prescription*. Rises as the
+# aerobic base develops (and shifts if MAX_HR is re-anchored); override via
+# the EASY_HR_CAP secret/env var.
 _easy_cap = _secret("EASY_HR_CAP", "120")
 EASY_HR_CAP = int(_easy_cap) if _easy_cap.isdigit() else 120
+
+# Reference HR for the success metric (easy-day split normalised to a fixed HR).
+# Deliberately SEPARATE from EASY_HR_CAP despite starting at the same value:
+# the cap is a prescription that moves, while this is a measurement baseline
+# that must stay fixed or the whole trend loses comparability. Changing it
+# rescales every historical split and manufactures phantom improvement — only
+# change it if you intend to rebase the metric and discard the old trend.
+_norm_hr = _secret("NORM_SPLIT_HR", "120")
+NORM_SPLIT_HR = int(_norm_hr) if _norm_hr.isdigit() else 120
 
 # Optional plan start date (YYYY-MM-DD, the Monday of week 1). When set, the
 # Plan tab can show the 4-week cycle position and recovery-week markers. Leave

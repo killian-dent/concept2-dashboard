@@ -90,8 +90,8 @@ BLOCKS = {
         "easy_min": 40,
         "steady_min": 35,
         "intervals": "6 × 1:00",
-        "focus": "Extend easy days +5 min. Leave intervals alone. Watch "
-                 "the 120-bpm split.",
+        "focus": f"Extend easy days +5 min. Leave intervals alone. Watch "
+                 f"the {config.NORM_SPLIT_HR}-bpm split.",
         "change_label": "Mondays go to 40 min",
     },
     3: {
@@ -107,8 +107,10 @@ BLOCKS = {
 RECOVERY_WEEK = {
     "session_min": 20,
     "spm": "18–20",
-    "notes": "All three days Zone 1 (cap = Zone 1 top, 108 bpm at MAX_HR "
-             "180). No intervals, no Zone 3.",
+    # Derived, not hardcoded — tracks a MAX_HR override (see module docstring).
+    "notes": f"All three days Zone 1 (cap = Zone 1 top, "
+             f"{config.HR_ZONES[0][3]} bpm at MAX_HR {config.MAX_HR}). "
+             f"No intervals, no Zone 3.",
 }
 
 # ── The Phase 1 -> Phase 2 gate ───────────────────────────────────────────
@@ -123,7 +125,7 @@ GATE = {
     "criteria": [
         {"key": "drift", "label": "Easy-day decoupling",
          "target": "< 5% on a full-length (>=40 min analyzed) test"},
-        {"key": "pace", "label": "120-bpm normalized split",
+        {"key": "pace", "label": f"{config.NORM_SPLIT_HR}-bpm normalized split",
          "target": "inside ~2:30-2:45, trending toward 2:30"},
         {"key": "week", "label": "Plan week",
          "target": "week 12 or later"},

@@ -136,8 +136,10 @@ def aerobic_efficiency(
     is the easy-day split getting *faster at the same heart rate*. We isolate
     genuinely-easy steady sessions (avg HR in roughly Zone 2, not interval work,
     at least `min_minutes` long) and project each one's pace to a reference HR
-    (`cap`, default the plan's easy-HR ceiling) so sessions rowed at slightly
-    different heart rates are comparable.
+    (`cap`, default config.NORM_SPLIT_HR) so sessions rowed at slightly
+    different heart rates are comparable. The reference is deliberately a fixed
+    baseline, NOT the live EASY_HR_CAP — if it tracked the moving training cap,
+    raising the cap would rescale every past split and fake an improvement.
 
     Normalisation: pace scales inversely with HR (more effort → higher HR →
     faster pace), so pace_at_cap = pace * hr_avg / cap. Lower = better.
@@ -146,7 +148,7 @@ def aerobic_efficiency(
     duration — oldest→newest. Empty frame if no qualifying sessions.
     """
     if cap is None:
-        cap = config.EASY_HR_CAP
+        cap = config.NORM_SPLIT_HR
     if df.empty:
         return df
     sub = df[
