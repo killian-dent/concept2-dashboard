@@ -377,7 +377,7 @@ def _render_cap_verdict(row: pd.Series):
     hr = int(row.get("hr_avg", 0) or 0)
     steady = row.get("category", "SteadyState") != "Interval"
     long_enough = (row.get("time_s", 0) or 0) >= 15 * 60
-    if not (hr and steady and long_enough and hr <= 126):
+    if not (hr and steady and long_enough and hr <= config.HR_ZONES[1][3]):
         return
     ok = hr <= cap
     color = ui.ACCENT_PR if ok else ui.ACCENT_WARN

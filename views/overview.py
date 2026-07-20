@@ -100,8 +100,9 @@ def _render_hero_row(df):
     Side by side once there's enough easy data for the hero; before then the
     Next-up card (which is plan-driven, not history-driven) goes full width.
     """
-    cap = config.EASY_HR_CAP
-    eff = aerobic_efficiency(df, cap=cap)
+    # Frozen metric baseline — see data_extras.aerobic_efficiency docstring.
+    cap = config.NORM_SPLIT_HR
+    eff = aerobic_efficiency(df)
     has_hero = (not eff.empty) and len(eff) >= 2
 
     if has_hero:

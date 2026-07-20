@@ -270,8 +270,11 @@ def _render_roadmap(df: pd.DataFrame, gate: dict):
 # ── Aerobic efficiency tracker (the headline metric) ─────────────────────
 
 def _render_efficiency(df: pd.DataFrame):
-    cap = config.EASY_HR_CAP
-    eff = aerobic_efficiency(df, cap=cap)
+    # NORM_SPLIT_HR, not EASY_HR_CAP: this is the success metric's frozen
+    # baseline. Normalising to the live training cap would rescale every past
+    # split each time the cap rises and fake an improvement.
+    cap = config.NORM_SPLIT_HR
+    eff = aerobic_efficiency(df)
 
     ui.section_label(f"Aerobic efficiency · easy pace at {cap} bpm")
 
@@ -420,7 +423,8 @@ def _render_readiness(gate: dict):
     elif not pace_ok:
         color, verdict, detail = (
             ui.ACCENT_WARN, "Coupling ready · pace still building",
-            "Drift is under the gate, but the 120-bpm split hasn't reached "
+            f"Drift is under the gate, but the {config.NORM_SPLIT_HR}-bpm "
+            "split hasn't reached "
             "the ~2:30–2:45 band — hold Phase 1 and let the pace come down.",
         )
     elif not gate_open:
@@ -440,7 +444,8 @@ def _render_readiness(gate: dict):
     else:
         color, verdict, detail = (
             ui.ACCENT_PR, "Ready to advance",
-            "Aerobic base is solid and the 120-bpm split agrees — advance "
+            f"Aerobic base is solid and the {config.NORM_SPLIT_HR}-bpm "
+            "split agrees — advance "
             "to Phase 2 if you feel genuinely fresh.",
         )
 

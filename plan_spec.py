@@ -5,7 +5,8 @@ Narrative source of truth: rostrum's outputs/rowing-plan-summary.md
 ("Training Structure — Blocks and Phases" / "When to Advance to Phase 2" /
 "Recovery Week"). This module holds the plan's *structure* — durations,
 reps, gate criteria, schedule math — as data. Live HR numbers still come
-from config's zone model (MAX_HR / EASY_HR_CAP) so they track overrides;
+from config's zone model (MAX_HR / EASY_HR_CAP / NORM_SPLIT_HR) so they
+track overrides;
 this module only knows shapes and dates. No streamlit import — safe to
 import from any layer, including data_extras and the views.
 
@@ -67,7 +68,8 @@ PHASE2 = {
     "tbd": True,
     "weeks_estimate": "6-8",
     "sketch": [
-        "Day-1 cap rises to ~126 bpm, re-derived from the drift test",
+        f"Day-1 cap rises to ~{round(0.70 * config.MAX_HR)} bpm "
+        f"(Zone-2 ceiling), re-derived from the drift test",
         "Day-2 intervals lengthen toward 4-5 × 2:00",
         "Day-3 steady stays Zone 3",
         "Optional 4th day: a second easy Zone-2 row, only if fatigue is "

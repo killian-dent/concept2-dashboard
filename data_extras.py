@@ -126,8 +126,8 @@ def wod_percentile(rank: int, field: int) -> int:
 def aerobic_efficiency(
     df: pd.DataFrame,
     cap: int = None,
-    hr_lo: int = 108,
-    hr_hi: int = 126,
+    hr_lo: int = None,
+    hr_hi: int = None,
     min_minutes: int = 15,
 ) -> pd.DataFrame:
     """Easy aerobic (Zone-2) steady sessions with pace normalised to a fixed HR.
@@ -149,6 +149,13 @@ def aerobic_efficiency(
     """
     if cap is None:
         cap = config.NORM_SPLIT_HR
+    # Session-selection window = live Zone 2. Was hardcoded 108-126 (Zone 2 at
+    # the old MAX_HR of 180) and silently went stale on re-anchor; deriving it
+    # keeps "genuinely easy" meaning what the zone model says it means.
+    if hr_lo is None:
+        hr_lo = config.HR_ZONES[1][2]
+    if hr_hi is None:
+        hr_hi = config.HR_ZONES[1][3]
     if df.empty:
         return df
     sub = df[
@@ -308,10 +315,11 @@ _PLAN_DOW = {0: "easy", 2: "interval", 4: "steady"}
 # Optional strength pairing on rest days (from the plan's Tonal section).
 _REST_STRENGTH = {1: "upper-body push/pull", 3: "core + lower body"}
 
-# Friday steady-session target band: a fixed 130-140 bpm sub-range inside
-# Zone 3 (126-144), not the full zone — narrower than the zone model gives.
-_STEADY_HR_LO = 130
-_STEADY_HR_HI = 140
+# Friday steady-session target band: a sub-range inside Zone 3, narrower than
+# the full zone. Derived from MAX_HR so it tracks a re-anchor — these were once
+# hardcoded 130-140, which silently went stale when MAX_HR moved 180 -> 187.
+_STEADY_HR_LO = round(0.72 * config.MAX_HR)
+_STEADY_HR_HI = round(0.776 * config.MAX_HR)
 
 
 def _zone_bounds() -> dict:
@@ -603,8 +611,8 @@ DRIFT_FULL_TEST_S = 2400.0  # 40 min analyzed; below this a reading is provision
 GATE_OPEN_WEEK = plan_spec.GATE["open_week"]  # phase gate opens at the block-3 recovery week
 
 
-def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,
-                       hr_hi: int = 126, min_minutes: int = 30) -> list:
+def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = None,
+                       hr_hi: int = None, min_minutes: int = 30) -> list:
     """Most-recent easy Zone-2 steady sessions suitable for a drift check.
 
     Same easy-session filter as aerobic_efficiency (avg HR ~Zone 2, not interval
@@ -616,6 +624,11 @@ def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,
     """
     if df is None or df.empty:
         return []
+    # Live Zone 2 — see the note in aerobic_efficiency; these must stay in step.
+    if hr_lo is None:
+        hr_lo = config.HR_ZONES[1][2]
+    if hr_hi is None:
+        hr_hi = config.HR_ZONES[1][3]
     sub = df[
         (df["hr_avg"] >= hr_lo)
         & (df["hr_avg"] <= hr_hi)
@@ -623,7 +636,6 @@ def recent_easy_steady(df: pd.DataFrame, n: int = 3, hr_lo: int = 108,
         & (df["pace_s"] > 0)
         & (df["time_s"] >= min_minutes * 60)
     ]
-    import config
     if config.PLAN_START_DATE:
         try:
             start = pd.Timestamp(config.PLAN_START_DATE).tz_localize("UTC")
