@@ -96,12 +96,20 @@ BLOCKS = {
                  f"the {config.NORM_SPLIT_HR}-bpm split.",
         "change_label": "Mondays go to 40 min",
     },
+    # SUPERSEDED 2026-07-19, pending a decision from block-2 data. This block
+    # used to lengthen the hard day ("7 × 1:00 or 6 × 1:15"), which conflicts
+    # with PHASE1["variable"] == "volume". The plan summary's progression rule
+    # had two contradictory versions; the volume-only one won (interval
+    # lengthening is Phase 2's job). Block 3 must therefore be a VOLUME step —
+    # easy-day minutes — with the amount set from block 2. Values below hold
+    # block 2's numbers so nothing silently progresses in the meantime.
     3: {
         "easy_min": 40,
         "steady_min": 35,
-        "intervals": "7 × 1:00 or 6 × 1:15",
-        "focus": "Add to the hard day only (one change, not both).",
-        "change_label": "hard day gets longer (7 × 1:00 or 6 × 1:15)",
+        "intervals": "6 × 1:00",
+        "focus": "Volume step — easy-day minutes. Amount TBD from block 2 "
+                 "data; do not progress the hard day.",
+        "change_label": "volume step (easy days) — amount TBD",
     },
 }
 
